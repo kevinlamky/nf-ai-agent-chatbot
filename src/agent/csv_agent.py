@@ -24,15 +24,19 @@ llm = AzureChatOpenAI(
 
 agent = create_csv_agent(
     llm,
-    [
-        "data/raw/csv/Planning Application Details 1.csv",
-        "data/raw/csv/Planning Application Details 2.csv",
-    ],
+    "data/raw/csv/Planning Application Details.csv",
     verbose=True,
     agent_type=AgentType.OPENAI_FUNCTIONS,
     allow_dangerous_code=True,
+    number_of_head_rows=2,
 )
 
+agent.invoke(
+    "What is the current status of the planning application on New Brent Street?"
+)
+agent.invoke(
+    "What details are available about the planning application on New Brent Street?"
+)
 agent.invoke(
     "How many planning applications have been approved in the London Borough of Barnet?"
 )
