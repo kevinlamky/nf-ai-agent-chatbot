@@ -12,6 +12,9 @@ load_dotenv()
 # Fix SSL certificate verification issues
 os.environ.pop("SSL_CERT_FILE", None)  # Remove problematic SSL_CERT_FILE if it exists
 
+# Check if running on Streamlit Cloud
+IS_STREAMLIT_CLOUD = "STREAMLIT_RUNTIME_PRODUCTION" in os.environ
+
 
 class VectorStore:
     """A vector store using ChromaDB with Azure OpenAI embeddings."""
@@ -42,21 +45,32 @@ class VectorStore:
         except Exception as e:
             print(f"Error creating embeddings model: {e}")
 
-        # Create or load the vector store
-        if os.path.exists(persist_directory):
+        # On Streamlit Cloud, use in-memory storage instead of SQLite
+        if IS_STREAMLIT_CLOUD:
+            print(
+                "Running on Streamlit Cloud - using in-memory storage instead of SQLite"
+            )
             self.vectordb = Chroma(
-                persist_directory=persist_directory,
-                embedding_function=self.embeddings,
                 collection_name=collection_name,
+                embedding_function=self.embeddings,
+                client_settings=None,  # Use default in-memory client
             )
         else:
-            # Ensure directory exists
-            os.makedirs(persist_directory, exist_ok=True)
-            self.vectordb = Chroma(
-                persist_directory=persist_directory,
-                embedding_function=self.embeddings,
-                collection_name=collection_name,
-            )
+            # Create or load the vector store using file persistence
+            if os.path.exists(persist_directory):
+                self.vectordb = Chroma(
+                    persist_directory=persist_directory,
+                    embedding_function=self.embeddings,
+                    collection_name=collection_name,
+                )
+            else:
+                # Ensure directory exists
+                os.makedirs(persist_directory, exist_ok=True)
+                self.vectordb = Chroma(
+                    persist_directory=persist_directory,
+                    embedding_function=self.embeddings,
+                    collection_name=collection_name,
+                )
 
     def add_documents(
         self,
@@ -122,7 +136,8 @@ class VectorStore:
                         raise e
 
         # Persist changes after all batches are processed
-        self.vectordb.persist()
+        if not IS_STREAMLIT_CLOUD:
+            self.vectordb.persist()
 
     def similarity_search(
         self, query: str, k: int = 5, filter: Optional[Dict[str, Any]] = None
@@ -180,13 +195,19 @@ class VectorStore:
             # Delete the collection
             self.vectordb.delete_collection()
             # Reinitialize the collection
-            self.vectordb = Chroma(
-                collection_name=self.collection_name,
-                embedding_function=self.embeddings,
-                persist_directory=self.persist_directory,
-            )
-            # Persist the changes
-            self.vectordb.persist()
+            if IS_STREAMLIT_CLOUD:
+                self.vectordb = Chroma(
+                    collection_name=self.collection_name,
+                    embedding_function=self.embeddings,
+                )
+            else:
+                self.vectordb = Chroma(
+                    collection_name=self.collection_name,
+                    embedding_function=self.embeddings,
+                    persist_directory=self.persist_directory,
+                )
+                # Persist the changes
+                self.vectordb.persist()
             return True
         return False
 

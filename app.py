@@ -4,9 +4,13 @@ from dotenv import load_dotenv
 from src.agent.agent import Agent
 from src.utils.vector_store import VectorStore
 from src.utils.search_tool import GoogleSearchTool
+from src.utils.document_processor import DocumentProcessor
 
 # Load environment variables
 load_dotenv()
+
+# Check if running on Streamlit Cloud
+IS_STREAMLIT_CLOUD = "STREAMLIT_RUNTIME_PRODUCTION" in os.environ
 
 # Application constants
 APP_TITLE = "Planning Applications AI Assistant"
@@ -67,10 +71,31 @@ st.markdown(
 )
 
 
+def initialize_vector_store():
+    """Initialize the vector store and build it if needed (especially on Streamlit Cloud)."""
+    vector_store = VectorStore()
+
+    # Check if we're on Streamlit Cloud and need to build the vector store from data files
+    if IS_STREAMLIT_CLOUD:
+        # Check if there are PDF files in the data/raw/pdf directory
+        pdf_dir = "data/raw/pdf"
+        if os.path.exists(pdf_dir) and any(
+            f.endswith(".pdf") for f in os.listdir(pdf_dir)
+        ):
+            with st.spinner("Building vector database from PDF files..."):
+                doc_processor = DocumentProcessor()
+                documents = doc_processor.process_directory(pdf_dir)
+                if documents:
+                    vector_store.add_documents(documents)
+                    st.success(f"Vector database built with {len(documents)} chunks")
+
+    return vector_store
+
+
 def initialize_agent():
     """Initialize the agent with vector store and search tool."""
     # Initialize vector store
-    vector_store = VectorStore()
+    vector_store = initialize_vector_store()
 
     # Check if Google Search API credentials are available
     if not os.getenv("GOOGLE_API_KEY") or not os.getenv("GOOGLE_CSE_ID"):
