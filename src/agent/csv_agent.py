@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 from langchain.agents.agent_types import AgentType
 from langchain_experimental.agents.agent_toolkits import create_csv_agent
 from langchain_openai import AzureChatOpenAI
+from src.prompts.csv_agent_prompts import CSV_AGENT_PREFIX
 
 load_dotenv()
 
@@ -18,6 +19,7 @@ def get_csv_agent(csv_file_path, verbose=True, number_of_head_rows=2):
     Args:
         csv_file_path: Path to the CSV file
         verbose: Whether to enable verbose output
+        number_of_head_rows: Number of rows to display in head preview
 
     Returns:
         CSV agent
@@ -36,6 +38,7 @@ def get_csv_agent(csv_file_path, verbose=True, number_of_head_rows=2):
         agent_type=AgentType.OPENAI_FUNCTIONS,
         allow_dangerous_code=True,
         number_of_head_rows=number_of_head_rows,
+        prefix=CSV_AGENT_PREFIX,
     )
 
     return agent

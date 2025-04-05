@@ -14,6 +14,22 @@ from langchain.agents.agent_types import AgentType
 from src.utils.vector_store import VectorStore
 from src.utils.search_tool import GoogleSearchTool
 from src.agent.csv_agent import get_csv_agent
+from src.prompts.agent_prompts import (
+    TOOL_DESCRIPTIONS,
+    BASE_SYSTEM_MESSAGE,
+    AGENT_PROCESS_INSTRUCTIONS,
+    CONVERSATION_SYSTEM_MESSAGE,
+    FALLBACK_PROMPT,
+)
+from src.prompts.document_prompts import (
+    DOCUMENT_SEARCH_RESULTS_PREFIX,
+    DOCUMENT_SEARCH_NO_RESULTS,
+    DOCUMENT_SEARCH_NOT_AVAILABLE,
+    DOCUMENT_SEARCH_ERROR,
+    DOCUMENT_RESULT_FORMAT,
+    CSV_SEARCH_NOT_AVAILABLE,
+    CSV_SEARCH_ERROR,
+)
 
 load_dotenv()
 
@@ -92,9 +108,7 @@ class Agent:
         if self.vector_store:
             doc_search_tool = Tool(
                 name="pdf_document_search",
-                description="""Search the PDF planning application documents for information about planning applications in London.
-Use this tool when the question is about specific planning applications, building details, or policy information
-that would be contained in official documents.""",
+                description=TOOL_DESCRIPTIONS["pdf_document_search"],
                 func=lambda query: self._search_documents(query),
             )
             tools.append(doc_search_tool)
@@ -103,10 +117,7 @@ that would be contained in official documents.""",
         if self.csv_agent:
             csv_tool = Tool(
                 name="csv_data_search",
-                description="""Search the CSV database of planning applications for detailed application information.
-Use this tool when the question is about planning application status, dates, locations, reference numbers,
-statistics about applications, or when you need structured data about the applications.
-This tool is good for queries that require analysis of planning application records.""",
+                description=TOOL_DESCRIPTIONS["csv_data_search"],
                 func=lambda query: self._query_csv_data(query),
             )
             tools.append(csv_tool)
@@ -129,24 +140,27 @@ This tool is good for queries that require analysis of planning application reco
             String with search results
         """
         if not self.vector_store:
-            return "PDF document search is not available."
+            return DOCUMENT_SEARCH_NOT_AVAILABLE
 
         try:
             results = self.vector_store.similarity_search(query, k=3)
 
             if not results:
-                return "No relevant information found in the planning documents."
+                return DOCUMENT_SEARCH_NO_RESULTS
 
             documents_text = "\n\n".join(
                 [
-                    f"Document: {doc.metadata.get('source', 'Unknown')}\n{doc.page_content}"
+                    DOCUMENT_RESULT_FORMAT.format(
+                        source=doc.metadata.get("source", "Unknown"),
+                        content=doc.page_content,
+                    )
                     for doc in results
                 ]
             )
 
-            return f"Here is relevant information from the planning documents:\n\n{documents_text}"
+            return f"{DOCUMENT_SEARCH_RESULTS_PREFIX}{documents_text}"
         except Exception as e:
-            return f"Error searching documents: {str(e)}"
+            return DOCUMENT_SEARCH_ERROR.format(error=str(e))
 
     def _query_csv_data(self, query: str) -> str:
         """
@@ -159,7 +173,7 @@ This tool is good for queries that require analysis of planning application reco
             String with results from the CSV agent
         """
         if not self.csv_agent:
-            return "CSV data search is not available."
+            return CSV_SEARCH_NOT_AVAILABLE
 
         try:
             # Execute the query using the CSV agent
@@ -170,7 +184,7 @@ This tool is good for queries that require analysis of planning application reco
                 return result["output"]
             return str(result)
         except Exception as e:
-            return f"Error querying CSV data: {str(e)}"
+            return CSV_SEARCH_ERROR.format(error=str(e))
 
     def _setup_agent(self) -> AgentExecutor:
         """
@@ -179,10 +193,10 @@ This tool is good for queries that require analysis of planning application reco
         Returns:
             Agent executor
         """
-        # Define the agent prompt
-        system_message = """You are an AI assistant specialized in answering questions about planning applications in London.
-"""
+        # Start with the base system message
+        system_message = BASE_SYSTEM_MESSAGE
 
+        # Add available tools to the system message
         available_tools = []
         if self.vector_store:
             system_message += "You can search through PDF planning application documents for detailed information.\n"
@@ -196,25 +210,11 @@ This tool is good for queries that require analysis of planning application reco
             system_message += "You can search online for additional information about planning applications and related topics.\n"
             available_tools.append("web search")
 
+        # Add tool list and process instructions
         system_message += f"\nTo answer questions, you have these tools available: {', '.join(available_tools)}.\n"
-        system_message += """
-Follow this process when answering questions:
+        system_message += AGENT_PROCESS_INSTRUCTIONS
 
-1. For questions about specific planning applications, statistics, or application status:
-   - First try using the CSV data search tool to get accurate information from the application database.
-
-2. For questions requiring detailed information about planning policies, building specifications, or technical details:
-   - Use the PDF document search to find relevant information from official planning documents.
-
-3. For general knowledge or current information not in the documents or database:
-   - Use the web search tool to find information online.
-
-4. Synthesize information from all sources to provide a comprehensive answer.
-
-Always cite your sources, whether the information comes from planning documents, CSV data, or online sources.
-Provide clear and accurate answers focusing on the specific question asked.
-"""
-
+        # Create the prompt
         prompt = ChatPromptTemplate.from_messages(
             [
                 (
@@ -249,11 +249,7 @@ Provide clear and accurate answers focusing on the specific question asked.
             [
                 (
                     "system",
-                    """You are an AI assistant specialized in answering questions about planning applications in London.
-You can search for information in planning documents, CSV application data, and online sources.
-
-Provide helpful, accurate, and concise responses based on the conversation history and the current question.
-""",
+                    CONVERSATION_SYSTEM_MESSAGE,
                 ),
                 MessagesPlaceholder(variable_name="history"),
                 ("human", "{question}"),
@@ -316,9 +312,8 @@ Provide helpful, accurate, and concise responses based on the conversation histo
             print(f"Error in agent processing: {str(e)}")
             # Try a simple fallback
             try:
-                fallback_response = self.llm.invoke(
-                    f"Please answer this question about planning applications: {question}"
-                )
+                formatted_prompt = FALLBACK_PROMPT.format(question=question)
+                fallback_response = self.llm.invoke(formatted_prompt)
                 response = fallback_response.content
                 return response
             except:
