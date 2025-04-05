@@ -4,12 +4,11 @@ pandas==1.5.3
 langchain>=0.3.22
 langchain-openai>=0.3.12
 langchain-core>=0.3.50
-onnxruntime==1.14.1
+langchain-experimental>=0.0.36
 chromadb>=1.0.0
 protobuf==3.20.*
 streamlit>=1.31.0
-langchain-experimental
-pymupdf
-google-api-python-client
-langchain-text-splitters
-tqdm 
+pymupdf>=1.23.0
+google-api-python-client>=2.0.0
+langchain-text-splitters>=0.0.1
+tqdm>=4.66.0 
