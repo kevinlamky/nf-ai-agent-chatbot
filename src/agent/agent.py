@@ -14,6 +14,9 @@ from src.utils.search_tool import GoogleSearchTool
 
 load_dotenv()
 
+# Fix SSL certificate verification issues
+os.environ.pop("SSL_CERT_FILE", None)  # Remove problematic SSL_CERT_FILE if it exists
+
 
 class Agent:
     """An AI agent that can answer queries about planning applications."""
@@ -242,8 +245,4 @@ Provide helpful, accurate, and concise responses based on the conversation histo
 if __name__ == "__main__":
     agent = Agent()
     # print(agent.query("Who is the winner of 2024 Olympic men single tennis?"))
-    print(
-        agent.query(
-            "What is the current status of the planning application on New Brent Street?"
-        )
-    )
+    print(agent.query("What amenities are included at 99 City Road?"))
