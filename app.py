@@ -8,9 +8,21 @@ from src.utils.search_tool import GoogleSearchTool
 # Load environment variables
 load_dotenv()
 
+# Application constants
+APP_TITLE = "Planning Applications AI Assistant"
+APP_DESCRIPTION = "Ask questions about planning applications in London"
+EXAMPLE_QUESTIONS = [
+    "What is the current status of the planning application on New Brent Street?",
+    "What details are available about the planning application on New Brent Street?",
+    "What amenities are included at 99 City Road?",
+    "What is the total proposed Gross Internal Area for 99 Bishopsgate?",
+    "How does the proposed GIA of 99 Bishopsgate compare to that of 70 Gracechurch Street?",
+    "How many planning applications have been approved in the London Borough of Barnet?",
+]
+
 # Set page configuration
 st.set_page_config(
-    page_title="Planning Applications Chatbot",
+    page_title=APP_TITLE,
     page_icon="🏙️",
     layout="centered",
 )
@@ -100,11 +112,33 @@ def display_message(role, content):
         )
 
 
+def setup_sidebar():
+    """Set up the sidebar with example questions and reset button."""
+    st.sidebar.header("Example Questions")
+
+    # Display example questions as buttons
+    for q in EXAMPLE_QUESTIONS:
+        if st.sidebar.button(q):
+            st.session_state.messages.append({"role": "user", "content": q})
+            # Get response from agent
+            with st.spinner("Thinking..."):
+                response = st.session_state.agent.query(q)
+            st.session_state.messages.append({"role": "assistant", "content": response})
+            # Force a rerun to display the new messages
+            st.rerun()
+
+    # Add clear conversation button
+    if st.sidebar.button("Clear Conversation"):
+        st.session_state.messages = []
+        st.session_state.agent.reset_conversation()
+        st.rerun()
+
+
 def main():
     """Main function to run the Streamlit app."""
     # Set up the title and description
-    st.title("Planning Applications AI Assistant")
-    st.markdown("Ask questions about planning applications in London")
+    st.title(APP_TITLE)
+    st.markdown(APP_DESCRIPTION)
 
     # Initialize session state for chat history if it doesn't exist
     if "messages" not in st.session_state:
@@ -114,34 +148,8 @@ def main():
     if "agent" not in st.session_state:
         st.session_state.agent = initialize_agent()
 
-    # Sidebar with examples and reset button
-    with st.sidebar:
-        st.header("Example Questions")
-        example_questions = [
-            "What is the current status of the planning application on New Brent Street?",
-            "What details are available about the planning application on New Brent Street?",
-            "What amenities are included at 99 City Road?",
-            "What is the total proposed Gross Internal Area for 99 Bishopsgate?",
-            "How does the proposed GIA of 99 Bishopsgate compare to that of 70 Gracechurch Street?",
-            "How many planning applications have been approved in the London Borough of Barnet?",
-        ]
-
-        for q in example_questions:
-            if st.button(q):
-                st.session_state.messages.append({"role": "user", "content": q})
-                # Get response from agent
-                with st.spinner("Thinking..."):
-                    response = st.session_state.agent.query(q)
-                st.session_state.messages.append(
-                    {"role": "assistant", "content": response}
-                )
-                # Force a rerun to display the new messages
-                st.rerun()
-
-        if st.button("Clear Conversation"):
-            st.session_state.messages = []
-            st.session_state.agent.reset_conversation()
-            st.rerun()
+    # Setup sidebar with examples and reset button
+    setup_sidebar()
 
     # Display chat history
     for message in st.session_state.messages:

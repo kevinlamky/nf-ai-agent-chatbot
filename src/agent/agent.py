@@ -10,10 +10,10 @@ from langchain.agents import AgentExecutor
 from langchain.agents.openai_functions_agent.base import OpenAIFunctionsAgent
 from langchain_core.tools import Tool
 from langchain.agents.agent_types import AgentType
-from langchain_experimental.agents.agent_toolkits import create_csv_agent
 
 from src.utils.vector_store import VectorStore
 from src.utils.search_tool import GoogleSearchTool
+from src.agent.csv_agent import get_csv_agent
 
 load_dotenv()
 
@@ -28,6 +28,7 @@ class Agent:
         self,
         vector_store: Optional[VectorStore] = None,
         search_tool: Optional[GoogleSearchTool] = None,
+        csv_path: str = "data/raw/csv/Planning Application Details.csv",
     ):
         """
         Initialize the unified planning agent.
@@ -35,6 +36,7 @@ class Agent:
         Args:
             vector_store: Vector store for PDF document search
             search_tool: Google search tool for web search
+            csv_path: Path to the CSV file with planning data
         """
         # Initialize vector store if not provided
         self.vector_store = vector_store or VectorStore()
@@ -42,8 +44,8 @@ class Agent:
         # Initialize search tool if not provided
         self.search_tool = search_tool or GoogleSearchTool()
 
-        # Initialize CSV file paths (default if not provided)
-        self.csv_paths = "data/raw/csv/Planning Application Details.csv"
+        # Initialize CSV file paths
+        self.csv_path = csv_path
 
         # Initialize chat model
         try:
@@ -60,17 +62,10 @@ class Agent:
 
         # Initialize CSV agent if CSV files are available
         self.csv_agent = None
-        if self.csv_paths:
+        if os.path.exists(self.csv_path):
             try:
-                self.csv_agent = create_csv_agent(
-                    self.llm,
-                    self.csv_paths,
-                    verbose=True,
-                    agent_type=AgentType.OPENAI_FUNCTIONS,
-                    allow_dangerous_code=True,
-                    number_of_head_rows=2,
-                )
-                print(f"CSV agent initialized with files: {', '.join(self.csv_paths)}")
+                self.csv_agent = get_csv_agent(self.csv_path, verbose=True)
+                print(f"CSV agent initialized with file: {self.csv_path}")
             except Exception as e:
                 print(f"Warning: Failed to initialize CSV agent: {str(e)}")
 

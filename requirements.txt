@@ -1,0 +1,15 @@
+openai>=1.0.0
+python-dotenv>=1.0.0
+pandas==1.5.3
+langchain>=0.3.22
+langchain-openai>=0.3.12
+langchain-core>=0.3.50
+onnxruntime==1.14.1
+chromadb>=1.0.0
+protobuf==3.20.*
+streamlit>=1.31.0
+langchain-experimental
+pymupdf
+google-api-python-client
+langchain-text-splitters
+tqdm 
