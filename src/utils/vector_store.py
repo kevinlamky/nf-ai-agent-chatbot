@@ -9,6 +9,9 @@ from langchain_core.documents import Document
 
 load_dotenv()
 
+# Fix SSL certificate verification issues
+os.environ.pop("SSL_CERT_FILE", None)  # Remove problematic SSL_CERT_FILE if it exists
+
 
 class VectorStore:
     """A vector store using ChromaDB with Azure OpenAI embeddings."""
@@ -16,7 +19,7 @@ class VectorStore:
     def __init__(
         self,
         persist_directory: str = "data/chroma_db",
-        collection_name: str = "planning_docs",
+        collection_name: str = "pdf_docs",
     ):
         """
         Initialize the vector store.
@@ -28,13 +31,16 @@ class VectorStore:
         self.persist_directory = persist_directory
         self.collection_name = collection_name
 
-        # Create embeddings model
-        self.embeddings = AzureOpenAIEmbeddings(
-            azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-            api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-            api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
-            deployment=os.getenv("AZURE_OPENAI_EMBEDDING_MODEL"),
-        )
+        try:
+            # Create embeddings model
+            self.embeddings = AzureOpenAIEmbeddings(
+                azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+                api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+                api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
+                deployment=os.getenv("AZURE_OPENAI_EMBEDDING_MODEL"),
+            )
+        except Exception as e:
+            print(f"Error creating embeddings model: {e}")
 
         # Create or load the vector store
         if os.path.exists(persist_directory):

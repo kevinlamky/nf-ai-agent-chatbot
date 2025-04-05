@@ -10,7 +10,7 @@ load_dotenv()
 
 
 def build_vector_database(
-    data_dir="data/raw",
+    data_dir="data/raw/pdf",
     output_dir="data/chroma_db",
     force=False,
     chunk_size=1000,
@@ -44,7 +44,10 @@ def build_vector_database(
         doc_processor = DocumentProcessor(
             chunk_size=chunk_size, chunk_overlap=chunk_overlap
         )
+        print(f"Processing documents in {data_dir}")
+
         vector_store = VectorStore(persist_directory=output_dir)
+        print(f"Vector store initialized with {output_dir}")
 
         # Process documents and add to vector store
         documents = doc_processor.process_directory(data_dir)

@@ -121,6 +121,8 @@ class DocumentProcessor:
             elif file_name.lower().endswith(".csv"):
                 documents.extend(self.process_csv(file_path))
 
+        print(f"Processed {len(documents)} documents from {dir_path}")
+
         return documents
 
 
@@ -128,19 +130,19 @@ if __name__ == "__main__":
     processor = DocumentProcessor()
 
     # Test processing a single PDF document
-    pdf_path = "data/raw/1_Undershaft_Planning_Statement.pdf"
+    pdf_path = "data/raw/pdf/1_Undershaft_Planning_Statement.pdf"
     pdf_documents = processor.process_pdf(pdf_path)
     print(f"Processed {len(pdf_documents)} chunks from {pdf_path}")
     print(pdf_documents[0])
 
     # Test processing a single CSV document
-    csv_path = "data/raw/Planning Application Details.csv"
+    csv_path = "data/raw/csv/Planning Application Details.csv"
     csv_documents = processor.process_csv(csv_path)
     print(f"Processed {len(csv_documents)} rows from {csv_path}")
     print(csv_documents[0])
 
     # Test processing a directory
-    test_dir = "data/raw"
+    test_dir = "data/raw/pdf"
     dir_documents = processor.process_directory(test_dir)
     print(
         f"Processed {len(set(doc['metadata']['source'] for doc in dir_documents))} total documents from directory {test_dir}"
