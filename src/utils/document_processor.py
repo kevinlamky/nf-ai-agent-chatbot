@@ -2,7 +2,7 @@ import os
 import pymupdf
 import pandas as pd
 from typing import List, Dict, Optional, Any
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 
 class DocumentProcessor:
