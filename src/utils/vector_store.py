@@ -141,7 +141,7 @@ class VectorStore:
         return self.vectordb.similarity_search(query, k=k, filter=filter)
 
     def similarity_search_with_score(
-        self, query: str, k: int = 5, filter: Optional[Dict[str, Any]] = None
+        self, query: str, k: int = 3, filter: Optional[Dict[str, Any]] = None
     ) -> List[tuple[Document, float]]:
         """
         Search for similar documents in the vector store with relevance scores.
@@ -166,7 +166,7 @@ class VectorStore:
         Returns:
             Retriever interface for use with LangChain
         """
-        search_kwargs = search_kwargs or {"k": 5}
+        search_kwargs = search_kwargs or {"k": 3}
         return self.vectordb.as_retriever(search_kwargs=search_kwargs)
 
     def delete(self):

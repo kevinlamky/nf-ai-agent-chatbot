@@ -122,7 +122,8 @@ def main():
             "What details are available about the planning application on New Brent Street?",
             "What amenities are included at 99 City Road?",
             "What is the total proposed Gross Internal Area for 99 Bishopsgate?",
-            "How many planning applications have been approved in Barnet?",
+            "How does the proposed GIA of 99 Bishopsgate compare to that of 70 Gracechurch Street?",
+            "How many planning applications have been approved in the London Borough of Barnet?",
         ]
 
         for q in example_questions:
