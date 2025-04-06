@@ -62,17 +62,9 @@ GOOGLE_CSE_ID=your_google_custom_search_engine_id
 
 Before running the application, build the vector database for the PDF documents:
 
-```bash
+````bash
 python -m src.build_vector_db
-```
-
-Optional arguments:
-
-- `--data-dir`, `-d`: Directory containing PDF files (default: `data/raw/pdf`)
-- `--output-dir`, `-o`: Directory to store the vector database (default: `data/chroma_db`)
-- `--force`, `-f`: Force rebuild of database if it exists
-- `--chunk-size`, `-s`: Size of document chunks (default: 1000)
-- `--chunk-overlap`, `-c`: Overlap between chunks (default: 200)
+``
 
 ## Running the Application
 
@@ -80,7 +72,7 @@ Start the Streamlit web interface:
 
 ```bash
 streamlit run app.py
-```
+````
 
 ## Project Structure
 
@@ -90,7 +82,7 @@ streamlit run app.py
 │   ├── raw/                 # Raw data files
 │   │   ├── pdf/             # PDF documents
 │   │   └── csv/             # CSV files
-│   └── chroma_db/           # Vector database
+│   └── faiss_index/         # Vector database
 ├── src/                     # Source code
 │   ├── agent/               # Agent components
 │   │   ├── agent.py         # Main agent implementation
@@ -104,9 +96,12 @@ streamlit run app.py
 └── README.md                # This file
 ```
 
-## Deployment
+## Troubleshooting
 
-For deployment instructions, see [AZURE_DEPLOYMENT.md](AZURE_DEPLOYMENT.md).
+- If you see an error about missing dependencies, make sure you've run `pip install -r requirements.txt`
+- If the agent can't connect to OpenAI, check your API key and connectivity
+- If search doesn't work, check that your Google Search API credentials are properly set
+- If the agent can't answer document-specific questions, ensure you've built the vector database
 
 ## License
 
