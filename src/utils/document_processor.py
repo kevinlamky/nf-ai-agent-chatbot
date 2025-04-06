@@ -37,34 +37,49 @@ class DocumentProcessor:
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"PDF file not found: {file_path}")
 
-        # Extract text from PDF
-        doc = pymupdf.open(file_path)
-        text = ""
+        try:
+            print(f"Opening PDF file: {file_path}")
+            # Extract text from PDF
+            doc = pymupdf.open(file_path)
+            text = ""
 
-        for page_num in range(len(doc)):
-            page = doc.load_page(page_num)
-            text += page.get_text()
+            for page_num in range(len(doc)):
+                try:
+                    page = doc.load_page(page_num)
+                    text += page.get_text()
+                except Exception as e:
+                    print(f"Error extracting text from page {page_num}: {e}")
 
-        # Split text into chunks
-        chunks = self.text_splitter.create_documents([text])
+            print(f"Extracted {len(text)} characters from {file_path}")
 
-        # Add metadata to chunks
-        file_name = os.path.basename(file_path)
-        documents = []
+            if not text.strip():
+                print(f"Warning: No text extracted from {file_path}")
+                return []
 
-        for i, chunk in enumerate(chunks):
-            documents.append(
-                {
-                    "content": chunk.page_content,
-                    "metadata": {
-                        "source": file_name,
-                        "chunk": i,
-                        "file_path": file_path,
-                    },
-                }
-            )
+            # Split text into chunks
+            chunks = self.text_splitter.create_documents([text])
+            print(f"Created {len(chunks)} chunks from {file_path}")
 
-        return documents
+            # Add metadata to chunks
+            file_name = os.path.basename(file_path)
+            documents = []
+
+            for i, chunk in enumerate(chunks):
+                documents.append(
+                    {
+                        "content": chunk.page_content,
+                        "metadata": {
+                            "source": file_name,
+                            "chunk": i,
+                            "file_path": file_path,
+                        },
+                    }
+                )
+
+            return documents
+        except Exception as e:
+            print(f"Error processing PDF {file_path}: {e}")
+            return []
 
     def process_csv(self, file_path: str) -> List[Dict[str, Any]]:
         """
@@ -79,24 +94,28 @@ class DocumentProcessor:
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"CSV file not found: {file_path}")
 
-        df = pd.read_csv(file_path)
-        documents = []
+        try:
+            df = pd.read_csv(file_path)
+            documents = []
 
-        # Convert each row to a document
-        for index, row in df.iterrows():
-            content = " ".join([f"{col}: {row[col]}" for col in df.columns])
-            documents.append(
-                {
-                    "content": content,
-                    "metadata": {
-                        "source": os.path.basename(file_path),
-                        "index": index,
-                        "file_path": file_path,
-                    },
-                }
-            )
+            # Convert each row to a document
+            for index, row in df.iterrows():
+                content = " ".join([f"{col}: {row[col]}" for col in df.columns])
+                documents.append(
+                    {
+                        "content": content,
+                        "metadata": {
+                            "source": os.path.basename(file_path),
+                            "index": index,
+                            "file_path": file_path,
+                        },
+                    }
+                )
 
-        return documents
+            return documents
+        except Exception as e:
+            print(f"Error processing CSV {file_path}: {e}")
+            return []
 
     def process_directory(self, dir_path: str) -> List[Dict[str, Any]]:
         """
@@ -112,16 +131,30 @@ class DocumentProcessor:
             raise FileNotFoundError(f"Directory not found: {dir_path}")
 
         documents = []
+        file_count = 0
+        pdf_count = 0
 
         for file_name in os.listdir(dir_path):
             file_path = os.path.join(dir_path, file_name)
+            file_count += 1
 
-            if file_name.lower().endswith(".pdf"):
-                documents.extend(self.process_pdf(file_path))
-            elif file_name.lower().endswith(".csv"):
-                documents.extend(self.process_csv(file_path))
+            try:
+                if file_name.lower().endswith(".pdf"):
+                    pdf_count += 1
+                    print(f"Processing PDF {pdf_count}/{file_count}: {file_name}")
+                    pdf_documents = self.process_pdf(file_path)
+                    documents.extend(pdf_documents)
+                    print(f"Extracted {len(pdf_documents)} chunks from {file_name}")
+                elif file_name.lower().endswith(".csv"):
+                    print(f"Processing CSV: {file_name}")
+                    csv_documents = self.process_csv(file_path)
+                    documents.extend(csv_documents)
+                    print(f"Extracted {len(csv_documents)} rows from {file_name}")
+            except Exception as e:
+                print(f"Error processing file {file_name}: {e}")
 
-        print(f"Processed {len(documents)} documents from {dir_path}")
+        print(f"Processed {file_count} files ({pdf_count} PDFs) from {dir_path}")
+        print(f"Total documents extracted: {len(documents)}")
 
         return documents
 

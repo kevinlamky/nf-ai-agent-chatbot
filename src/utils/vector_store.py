@@ -1,10 +1,13 @@
 import os
 import time
+import pickle
+import faiss
+import numpy as np
 from tqdm import tqdm
 from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 from langchain_openai import AzureOpenAIEmbeddings
-from langchain_community.vectorstores import Chroma
+from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 
 load_dotenv()
@@ -17,22 +20,24 @@ IS_STREAMLIT_CLOUD = "STREAMLIT_RUNTIME_PRODUCTION" in os.environ
 
 
 class VectorStore:
-    """A vector store using ChromaDB with Azure OpenAI embeddings."""
+    """A vector store using FAISS with Azure OpenAI embeddings."""
 
     def __init__(
         self,
-        persist_directory: str = "data/chroma_db",
-        collection_name: str = "pdf_docs",
+        persist_directory: str = "data/faiss_index",
+        index_name: str = "pdf_docs",
     ):
         """
         Initialize the vector store.
 
         Args:
             persist_directory: Directory to persist the vector store
-            collection_name: Name of the collection in ChromaDB
+            index_name: Name of the FAISS index
         """
         self.persist_directory = persist_directory
-        self.collection_name = collection_name
+        self.index_name = index_name
+        self.index_file = os.path.join(persist_directory, f"{index_name}.faiss")
+        self.docstore_file = os.path.join(persist_directory, f"{index_name}.pkl")
 
         try:
             # Create embeddings model
@@ -44,33 +49,56 @@ class VectorStore:
             )
         except Exception as e:
             print(f"Error creating embeddings model: {e}")
+            raise
 
         # Create or load the vector store
+        if os.path.exists(self.index_file) and os.path.exists(self.docstore_file):
+            try:
+                self.vectordb = self._load_faiss_index()
+                print(f"Loaded existing FAISS index from {self.index_file}")
+            except Exception as e:
+                print(f"Error loading existing FAISS index: {e}")
+                self._create_empty_index()
+        else:
+            # Create an empty index
+            print("Creating new FAISS index")
+            self._create_empty_index()
+            # Ensure directory exists
+            os.makedirs(persist_directory, exist_ok=True)
+
+    def _create_empty_index(self):
+        """Create an empty FAISS index with a temporary dummy document."""
+        # Create a dummy document for initialization
+        dummy_doc = Document(
+            page_content="Temporary initialization document",
+            metadata={"source": "initialization", "temporary": True},
+        )
+
+        # Create the index with the dummy document
+        self.vectordb = FAISS.from_documents([dummy_doc], self.embeddings)
+
+        # Remove the dummy document from the index (this clears the internal docstore)
         try:
-            # First try to create or load the standard way (for local development)
-            if os.path.exists(persist_directory):
-                self.vectordb = Chroma(
-                    persist_directory=persist_directory,
-                    embedding_function=self.embeddings,
-                    collection_name=collection_name,
-                )
-            else:
-                # Ensure directory exists
-                os.makedirs(persist_directory, exist_ok=True)
-                self.vectordb = Chroma(
-                    persist_directory=persist_directory,
-                    embedding_function=self.embeddings,
-                    collection_name=collection_name,
-                )
+            self.vectordb.docstore._dict.clear()
+            # Reset the index mapping
+            self.vectordb.index_to_docstore_id = {}
+            print("Created empty FAISS index")
         except Exception as e:
-            # If that fails (likely on Streamlit Cloud with older SQLite),
-            # create an in-memory database
-            print(f"Error creating persistent ChromaDB: {e}")
-            print("Falling back to in-memory ChromaDB")
-            self.vectordb = Chroma(
-                embedding_function=self.embeddings,
-                collection_name=collection_name,
-            )
+            print(f"Warning: Couldn't fully clear dummy document from index: {e}")
+
+    def _load_faiss_index(self) -> FAISS:
+        """Load a FAISS index from disk."""
+        return FAISS.load_local(
+            self.persist_directory,
+            self.embeddings,
+            self.index_name,
+            allow_dangerous_deserialization=True,
+        )
+
+    def _save_faiss_index(self) -> None:
+        """Save the FAISS index to disk."""
+        os.makedirs(self.persist_directory, exist_ok=True)
+        self.vectordb.save_local(self.persist_directory, self.index_name)
 
     def add_documents(
         self,
@@ -88,6 +116,13 @@ class VectorStore:
             initial_backoff: Initial wait time in seconds when hitting rate limits
             max_retries: Maximum number of retries per batch
         """
+        # Check if documents list is empty
+        if not documents:
+            print("No documents to add to the vector store")
+            return
+
+        print(f"Adding {len(documents)} documents to vector store")
+
         # Convert to LangChain document format
         langchain_docs = [
             Document(page_content=doc["content"], metadata=doc["metadata"])
@@ -100,19 +135,35 @@ class VectorStore:
             for i in range(0, len(langchain_docs), batch_size)
         ]
 
+        print(f"Processing documents in {len(batches)} batches of size {batch_size}")
+
         for i, batch in enumerate(tqdm(batches, desc="Processing document batches")):
             retry_count = 0
             backoff_time = initial_backoff
 
             while retry_count <= max_retries:
                 try:
-                    # Add batch to vector store
-                    self.vectordb.add_documents(batch)
+                    # For the first batch, recreate the index if the index is empty (only contains dummy doc)
+                    if (
+                        i == 0
+                        and retry_count == 0
+                        and len(self.vectordb.index_to_docstore_id) == 0
+                    ):
+                        print(
+                            f"Creating new FAISS index with first batch of {len(batch)} documents"
+                        )
+                        self.vectordb = FAISS.from_documents(batch, self.embeddings)
+                    else:
+                        print(
+                            f"Adding batch {i+1}/{len(batches)} ({len(batch)} documents)"
+                        )
+                        self.vectordb.add_documents(batch)
+
                     # If successful, break out of retry loop
                     break
-
                 except Exception as e:
                     error_message = str(e).lower()
+                    print(f"Error in batch {i+1}: {e}")
 
                     # Check if it's a rate limit error
                     if (
@@ -135,12 +186,12 @@ class VectorStore:
                         # For other errors, just raise
                         raise e
 
-        # Try to persist changes if we're using a persistent database
+        # Save the index after processing all batches
         try:
-            self.vectordb.persist()
+            self._save_faiss_index()
+            print(f"Saved FAISS index to {self.persist_directory}")
         except Exception as e:
-            print(f"Warning: Could not persist vector database: {e}")
-            print("This is normal when using in-memory mode on Streamlit Cloud")
+            print(f"Warning: Could not save FAISS index: {e}")
 
     def similarity_search(
         self, query: str, k: int = 5, filter: Optional[Dict[str, Any]] = None
@@ -156,7 +207,19 @@ class VectorStore:
         Returns:
             List of relevant documents
         """
-        return self.vectordb.similarity_search(query, k=k, filter=filter)
+        # Check if the index is empty
+        if not self.vectordb.index_to_docstore_id:
+            print("Warning: Vector store is empty. No results to return.")
+            return []
+
+        try:
+            if filter:
+                return self.vectordb.similarity_search(query, k=k, filter=filter)
+            else:
+                return self.vectordb.similarity_search(query, k=k)
+        except Exception as e:
+            print(f"Error during similarity search: {e}")
+            return []
 
     def similarity_search_with_score(
         self, query: str, k: int = 3, filter: Optional[Dict[str, Any]] = None
@@ -172,7 +235,21 @@ class VectorStore:
         Returns:
             List of tuples containing document and score
         """
-        return self.vectordb.similarity_search_with_score(query, k=k, filter=filter)
+        # Check if the index is empty
+        if not self.vectordb.index_to_docstore_id:
+            print("Warning: Vector store is empty. No results to return.")
+            return []
+
+        try:
+            if filter:
+                return self.vectordb.similarity_search_with_score(
+                    query, k=k, filter=filter
+                )
+            else:
+                return self.vectordb.similarity_search_with_score(query, k=k)
+        except Exception as e:
+            print(f"Error during similarity search with score: {e}")
+            return []
 
     def get_retriever(self, search_kwargs: Optional[Dict[str, Any]] = None):
         """
@@ -194,47 +271,26 @@ class VectorStore:
         This method removes all documents from the vector database and persists the changes.
         """
         try:
-            # Try to delete the collection and reinitialize
-            self.vectordb.delete_collection()
+            # Create new empty index
+            self._create_empty_index()
 
-            try:
-                # Try to reinitialize with persistent storage
-                self.vectordb = Chroma(
-                    collection_name=self.collection_name,
-                    embedding_function=self.embeddings,
-                    persist_directory=self.persist_directory,
-                )
-                # Persist the changes
-                self.vectordb.persist()
-            except Exception as e:
-                # Fallback to in-memory
-                print(f"Falling back to in-memory storage after delete: {e}")
-                self.vectordb = Chroma(
-                    collection_name=self.collection_name,
-                    embedding_function=self.embeddings,
-                )
+            # Save the empty index
+            self._save_faiss_index()
             return True
         except Exception as e:
-            print(f"Error deleting collection: {e}")
+            print(f"Error resetting vector store: {e}")
             return False
 
 
 if __name__ == "__main__":
-    # test the vector store
+    print("Vector store module loaded successfully")
+    # Initialize the vector store
     vector_store = VectorStore()
-
-    vector_store.add_documents(
-        [{"content": "Hello, world!", "metadata": {"source": "test.txt"}}]
+    print(
+        f"Vector store contains {len(vector_store.vectordb.index_to_docstore_id)} documents"
     )
 
     documents = vector_store.similarity_search(
         "What is the planning statement for Undershaft?"
     )
     print(documents)
-
-    documents = vector_store.similarity_search_with_score(
-        "What is the planning statement for Undershaft?"
-    )
-    print(documents)
-
-    vector_store.delete()

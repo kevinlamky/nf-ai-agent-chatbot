@@ -72,16 +72,15 @@ st.markdown(
 
 
 def initialize_vector_store():
-    """Initialize the vector store and build it if needed (especially on Streamlit Cloud)."""
-    vector_store = VectorStore()
+    """Initialize the vector store and build it if needed."""
+    # Initialize with a data directory in "data/faiss_index"
+    vector_store = VectorStore(persist_directory="data/faiss_index")
 
-    # Check if we're on Streamlit Cloud and need to build the vector store from data files
-    if IS_STREAMLIT_CLOUD:
-        # Check if there are PDF files in the data/raw/pdf directory
-        pdf_dir = "data/raw/pdf"
-        if os.path.exists(pdf_dir) and any(
-            f.endswith(".pdf") for f in os.listdir(pdf_dir)
-        ):
+    # Check if we need to build the vector store from data files
+    pdf_dir = "data/raw/pdf"
+    if os.path.exists(pdf_dir) and any(f.endswith(".pdf") for f in os.listdir(pdf_dir)):
+        # Check if the vector store is empty or we're on Streamlit Cloud (always rebuild)
+        if IS_STREAMLIT_CLOUD or not os.path.exists("data/faiss_index/pdf_docs.faiss"):
             with st.spinner("Building vector database from PDF files..."):
                 doc_processor = DocumentProcessor()
                 documents = doc_processor.process_directory(pdf_dir)
