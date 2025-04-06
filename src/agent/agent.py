@@ -23,15 +23,6 @@ from src.prompts.agent_prompts import (
     CONVERSATION_SYSTEM_MESSAGE,
     FALLBACK_PROMPT,
 )
-from src.prompts.document_prompts import (
-    DOCUMENT_SEARCH_RESULTS_PREFIX,
-    DOCUMENT_SEARCH_NO_RESULTS,
-    DOCUMENT_SEARCH_NOT_AVAILABLE,
-    DOCUMENT_SEARCH_ERROR,
-    DOCUMENT_RESULT_FORMAT,
-    CSV_SEARCH_NOT_AVAILABLE,
-    CSV_SEARCH_ERROR,
-)
 
 load_dotenv()
 
@@ -39,11 +30,11 @@ load_dotenv()
 logger = get_logger(__name__)
 
 # Fix SSL certificate verification issues
-os.environ.pop("SSL_CERT_FILE", None)  # Remove problematic SSL_CERT_FILE if it exists
+os.environ.pop("SSL_CERT_FILE", None)
 
 
 class Agent:
-    """An AI agent that can answer queries about planning applications using PDF documents, CSV data, and web search."""
+    """An AI agent that can answer queries about planning applications using given PDF and CSV documents, and web search."""
 
     def __init__(
         self,
@@ -52,12 +43,12 @@ class Agent:
         csv_path: str = "data/raw/csv/Planning Application Details.csv",
     ):
         """
-        Initialize the unified planning agent.
+        Initialize the unified chatbot agent.
 
         Args:
-            vector_store: Vector store for PDF document search
+            vector_store: Vector store for given PDF documents
             search_tool: Google search tool for web search
-            csv_path: Path to the CSV file with planning data
+            csv_path: Path to the given CSV file with planning application data
         """
         logger.info("Initializing Planning Agent")
 
@@ -180,21 +171,18 @@ class Agent:
 
         if not self.vector_store:
             logger.warning("Document search requested but vector store not available")
-            return DOCUMENT_SEARCH_NOT_AVAILABLE
+            return "PDF document search is not available."
 
         try:
-            results = self.vector_store.similarity_search(query, k=3)
+            results = self.vector_store.similarity_search(query, k=5)
 
             if not results:
                 logger.info("Document search returned no results")
-                return DOCUMENT_SEARCH_NO_RESULTS
+                return "No relevant information found in the given PDF documents."
 
             documents_text = "\n\n".join(
                 [
-                    DOCUMENT_RESULT_FORMAT.format(
-                        source=doc.metadata.get("source", "Unknown"),
-                        content=doc.page_content,
-                    )
+                    f"[Document: {doc.metadata.get('source', 'Unknown')}]\n{doc.page_content}"
                     for doc in results
                 ]
             )
@@ -204,10 +192,10 @@ class Agent:
                 f"Document search returned {len(results)} results from sources: {', '.join(sources)}"
             )
 
-            return f"{DOCUMENT_SEARCH_RESULTS_PREFIX}{documents_text}"
+            return f"Here is relevant information from the planning documents:\n\n {documents_text}"
         except Exception as e:
             logger.error(f"Error during document search: {e}")
-            return DOCUMENT_SEARCH_ERROR.format(error=str(e))
+            return f"Error searching documents: {e}"
 
     def _query_csv_data(self, query: str) -> str:
         """
@@ -223,7 +211,7 @@ class Agent:
 
         if not self.csv_agent:
             logger.warning("CSV query requested but CSV agent not available")
-            return CSV_SEARCH_NOT_AVAILABLE
+            return "CSV data search is not available."
 
         try:
             # Execute the query using the CSV agent
@@ -243,7 +231,7 @@ class Agent:
             return str(result)
         except Exception as e:
             logger.error(f"Error during CSV query: {e}")
-            return CSV_SEARCH_ERROR.format(error=str(e))
+            return f"Error querying CSV data: {e}"
 
     def _setup_agent(self) -> AgentExecutor:
         """
