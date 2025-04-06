@@ -224,40 +224,8 @@ def display_footer():
     st.markdown(footer_html, unsafe_allow_html=True)
 
 
-def process_feedback(feedback_type, message_idx):
-    """Process user feedback on a response."""
-    if "feedback" not in st.session_state:
-        st.session_state.feedback = {}
-
-    # Store feedback
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    message_content = st.session_state.messages[message_idx]["content"]
-
-    st.session_state.feedback[message_idx] = {
-        "type": feedback_type,
-        "timestamp": timestamp,
-        "response": (
-            message_content[:100] + "..."
-            if len(message_content) > 100
-            else message_content
-        ),
-    }
-
-    # Show a thank you message in a toast notification
-    if feedback_type == "positive":
-        st.toast("Thank you for your positive feedback!", icon="👍")
-    else:
-        st.toast(
-            "Thank you for your feedback. We'll use it to improve our responses.",
-            icon="👎",
-        )
-
-
 def setup_sidebar():
     """Set up the sidebar with example questions and reset button."""
-    st.sidebar.markdown("## Planning Intelligence")
-    st.sidebar.markdown("---")
-
     st.sidebar.markdown("### Sample Queries")
     st.sidebar.write("Click on any example to try it:")
 
@@ -281,7 +249,7 @@ def setup_sidebar():
             # Force a rerun to process the message
             st.rerun()
 
-        st.sidebar.markdown("---")
+    st.sidebar.markdown("---")
 
     # Add clear conversation button with better styling
     if st.sidebar.button(
@@ -296,17 +264,6 @@ def setup_sidebar():
             "%Y%m%d%H%M%S"
         )
         st.rerun()
-
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("### About")
-    st.sidebar.info(
-        """
-        This AI-powered planning assistant helps you access and interpret planning application data 
-        and documents for properties in London.
-        
-        It uses advanced AI to process planning documents and provide accurate, relevant information.
-        """
-    )
 
 
 def main():
@@ -327,10 +284,6 @@ def main():
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
-    # Initialize feedback storage
-    if "feedback" not in st.session_state:
-        st.session_state.feedback = {}
-
     # Initialize agent if it doesn't exist
     if "agent" not in st.session_state:
         st.session_state.agent = initialize_agent()
@@ -349,20 +302,6 @@ def main():
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
-            # Add feedback buttons for assistant messages using columns for layout
-            if message["role"] == "assistant" and i not in st.session_state.feedback:
-                cols = st.columns([7, 1, 1])
-                with cols[1]:
-                    if st.button(
-                        "👍", key=f"fb_pos_{i}", help="This response was helpful"
-                    ):
-                        process_feedback("positive", i)
-                with cols[2]:
-                    if st.button(
-                        "👎", key=f"fb_neg_{i}", help="This response was not helpful"
-                    ):
-                        process_feedback("negative", i)
-
     # Get user input
     if prompt := st.chat_input("Ask about planning applications..."):
         # Display user message
@@ -379,8 +318,7 @@ def main():
             full_response = ""
 
             # Simulate typing with a delay
-            # In a real app, you could replace this with streaming from your Agent
-            typing_indicator = "⏳"
+            typing_indicator = "⏳ Thinking..."
             message_placeholder.markdown(typing_indicator)
 
             try:
@@ -390,12 +328,6 @@ def main():
                 # Simulate typing effect (this could be replaced with actual streaming)
                 message_placeholder.empty()
 
-                # Optional: for a typing effect, you could uncomment this code:
-                # for chunk in response.split():
-                #     full_response += chunk + " "
-                #     time.sleep(0.05)
-                #     message_placeholder.markdown(full_response + "▌")
-
                 # Display the final response
                 message_placeholder.markdown(response)
 
@@ -403,20 +335,6 @@ def main():
                 st.session_state.messages.append(
                     {"role": "assistant", "content": response}
                 )
-
-                # Add feedback buttons
-                i = len(st.session_state.messages) - 1
-                cols = st.columns([7, 1, 1])
-                with cols[1]:
-                    if st.button(
-                        "👍", key=f"fb_pos_curr", help="This response was helpful"
-                    ):
-                        process_feedback("positive", i)
-                with cols[2]:
-                    if st.button(
-                        "👎", key=f"fb_neg_curr", help="This response was not helpful"
-                    ):
-                        process_feedback("negative", i)
 
             except Exception as e:
                 error_msg = f"I apologize, but I encountered an error: {str(e)}"
