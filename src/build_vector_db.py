@@ -6,7 +6,6 @@ from src.utils.document_processor import DocumentProcessor
 from src.utils.vector_store import VectorStore
 from src.utils.logger import get_logger
 
-# Get logger
 logger = get_logger(__name__)
 
 load_dotenv()
@@ -61,41 +60,24 @@ def build_vector_database(
         logger.error(f"Error: Data directory {data_dir} does not exist")
         return False
 
-    # Count how many PDFs in the directory
-    pdf_files = [f for f in os.listdir(data_dir) if f.lower().endswith(".pdf")]
-    logger.info(f"Found {len(pdf_files)} PDF files in {data_dir}:")
-    for pdf in pdf_files:
-        logger.info(f"  - {pdf}")
-
     try:
-        # Initialize components
         doc_processor = DocumentProcessor(
             chunk_size=chunk_size, chunk_overlap=chunk_overlap
         )
-        logger.info(
-            f"Document processor initialized with chunk_size={chunk_size}, chunk_overlap={chunk_overlap}"
-        )
 
-        # Make sure the output_dir exists
         os.makedirs(output_dir, exist_ok=True)
 
         vector_store = VectorStore(persist_directory=output_dir)
         logger.info(f"Vector store initialized with {output_dir}")
 
-        # Process documents and add to vector store
-        logger.info(f"Processing documents from {data_dir}...")
         documents = doc_processor.process_directory(data_dir)
 
-        # Check if documents list is empty
         if not documents:
             logger.error(
                 "Error: No documents were processed. Check the PDF files and logs."
             )
             return False
 
-        logger.info(f"Successfully processed {len(documents)} document chunks")
-
-        # Add documents to vector store
         logger.info(f"Adding documents to vector store...")
         vector_store.add_documents(documents)
 
@@ -108,7 +90,6 @@ def build_vector_database(
 
 
 if __name__ == "__main__":
-    # Use default parameters
     result = build_vector_database(
         data_dir="data/raw/pdf",
         output_dir="data/faiss_index",
