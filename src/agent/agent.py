@@ -102,12 +102,10 @@ class Agent:
         logger.info(f"Initialized {len(self.tools)} tools for agent")
 
         # Set up agent with tools
-        logger.info("Setting up agent executor")
         self.agent_executor = self._setup_agent()
         logger.info("Agent executor initialized")
 
         # Setup basic conversation chain for follow-up questions
-        logger.info("Setting up conversation chain for follow-up questions")
         self.conversation_history = []
         self.conversation_chain = self._setup_conversation_chain()
         logger.info("Conversation chain initialized")
@@ -235,26 +233,20 @@ class Agent:
         Returns:
             Agent executor
         """
-        logger.info("Setting up agent executor")
-
         # Start with the base system message
         system_message = BASE_SYSTEM_MESSAGE
-        logger.debug("Using base system message")
 
         # Add available tools to the system message
         available_tools = []
         if self.vector_store:
-            logger.info("Adding PDF document search capability to system message")
             system_message += "You can search through PDF planning application documents for detailed information.\n"
             available_tools.append("PDF document search")
 
         if self.csv_agent:
-            logger.info("Adding CSV data search capability to system message")
             system_message += "You have access to a database of planning application records in CSV format.\n"
             available_tools.append("CSV data query")
 
         if self.search_tool:
-            logger.info("Adding web search capability to system message")
             system_message += "You can search online for additional information about planning applications and related topics.\n"
             available_tools.append("web search")
 
@@ -470,19 +462,3 @@ class Agent:
         )
         logger.info(f"Conversation exchanges: {len(self.conversation_history) // 2}")
         logger.info("=======================")
-
-
-if __name__ == "__main__":
-    agent = Agent()
-    # logger.info(agent.query("Who is the winner of 2024 Olympic men single tennis?"))
-    # logger.info(agent.query("What amenities are included at 99 City Road from PDF?"))
-    logger.info(
-        agent.query(
-            "What is the total proposed Gross Internal Area (GIA) for 99 Bishopsgate?"
-        )
-    )
-    # logger.info(
-    #     agent.query(
-    #         "How does the proposed GIA of 99 Bishopsgate compare to that of 70 Gracechurch Street?"
-    #     )
-    # )
