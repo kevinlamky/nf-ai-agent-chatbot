@@ -26,7 +26,6 @@ from src.prompts.agent_prompts import (
 
 load_dotenv()
 
-# Get logger
 logger = get_logger(__name__)
 
 # Fix SSL certificate verification issues
@@ -69,7 +68,7 @@ class Agent:
             self.search_tool = GoogleSearchTool()
 
         # Initialize CSV file paths
-        logger.info(f"Setting CSV path to: {csv_path}")
+        logger.info(f"Setting CSV data path to: {csv_path}")
         self.csv_path = csv_path
 
         # Initialize chat model
@@ -86,13 +85,10 @@ class Agent:
             logger.warning(f"Warning: Error initializing Azure OpenAI: {str(e)}")
             raise
 
-        # Initialize CSV agent if CSV files are available
+        # Initialize CSV agent
         self.csv_agent = None
         if os.path.exists(self.csv_path):
             try:
-                logger.info(
-                    f"CSV file found at {self.csv_path}, initializing CSV agent"
-                )
                 self.csv_agent = get_csv_agent(self.csv_path, verbose=True)
                 logger.info(f"CSV agent initialized with file: {self.csv_path}")
             except Exception as e:
@@ -128,7 +124,7 @@ class Agent:
         logger.info("Setting up agent tools")
         tools = []
 
-        # Document search tool - only if vector store is available
+        # Document search tool
         if self.vector_store:
             logger.info("Adding document search tool")
             doc_search_tool = Tool(
@@ -148,7 +144,7 @@ class Agent:
             )
             tools.append(csv_tool)
 
-        # Google search tool - only if available
+        # Google search tool
         if self.search_tool:
             logger.info("Adding Google search tool")
             google_search_tool = self.search_tool.get_langchain_tool()
@@ -174,7 +170,9 @@ class Agent:
             return "PDF document search is not available."
 
         try:
-            results = self.vector_store.similarity_search(query, k=5)
+            results = self.vector_store.similarity_search(
+                query, k=3
+            )  # reduce k=3 for token rate limit
 
             if not results:
                 logger.info("Document search returned no results")
@@ -214,11 +212,8 @@ class Agent:
             return "CSV data search is not available."
 
         try:
-            # Execute the query using the CSV agent
-            logger.info("Invoking CSV agent")
             result = self.csv_agent.invoke({"input": query})
 
-            # Extract and return the output
             if isinstance(result, dict) and "output" in result:
                 logger.info(
                     f"CSV agent returned structured output of {len(result['output'])} characters"
@@ -256,7 +251,7 @@ class Agent:
         if self.csv_agent:
             logger.info("Adding CSV data search capability to system message")
             system_message += "You have access to a database of planning application records in CSV format.\n"
-            available_tools.append("CSV data search")
+            available_tools.append("CSV data query")
 
         if self.search_tool:
             logger.info("Adding web search capability to system message")
@@ -264,12 +259,10 @@ class Agent:
             available_tools.append("web search")
 
         # Add tool list and process instructions
-        logger.info(f"Available tools: {', '.join(available_tools)}")
         system_message += f"\nTo answer questions, you have these tools available: {', '.join(available_tools)}.\n"
         system_message += AGENT_PROCESS_INSTRUCTIONS
 
         # Create the prompt
-        logger.info("Creating agent prompt")
         prompt = ChatPromptTemplate.from_messages(
             [
                 (
@@ -282,12 +275,8 @@ class Agent:
             ]
         )
 
-        # Create the agent - using OpenAIFunctionsAgent
-        logger.info("Creating OpenAI functions agent")
         agent = OpenAIFunctionsAgent(llm=self.llm, tools=self.tools, prompt=prompt)
 
-        # Create the agent executor
-        logger.info("Creating agent executor")
         return AgentExecutor.from_agent_and_tools(
             agent=agent,
             tools=self.tools,
