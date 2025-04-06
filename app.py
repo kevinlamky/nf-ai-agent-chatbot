@@ -1,10 +1,14 @@
 import os
 import streamlit as st
 from dotenv import load_dotenv
+import datetime
+import time
+import uuid
 from src.agent.agent import Agent
 from src.utils.vector_store import VectorStore
 from src.utils.search_tool import GoogleSearchTool
 from src.utils.document_processor import DocumentProcessor
+from src.utils.logo import get_logo_html
 
 # Load environment variables
 load_dotenv()
@@ -13,8 +17,11 @@ load_dotenv()
 IS_STREAMLIT_CLOUD = "STREAMLIT_RUNTIME_PRODUCTION" in os.environ
 
 # Application constants
-APP_TITLE = "Planning Applications AI Assistant"
-APP_DESCRIPTION = "Ask questions about planning applications in London"
+APP_TITLE = "Planning Intelligence"
+APP_SUBTITLE = "AI-Powered Planning Application Assistant"
+APP_DESCRIPTION = "Access critical insights about planning applications in London with our AI-powered assistant."
+CURRENT_YEAR = datetime.datetime.now().year
+
 EXAMPLE_QUESTIONS = [
     "What is the current status of the planning application on New Brent Street?",
     "What details are available about the planning application on New Brent Street?",
@@ -27,43 +34,103 @@ EXAMPLE_QUESTIONS = [
 # Set page configuration
 st.set_page_config(
     page_title=APP_TITLE,
-    page_icon="🏙️",
-    layout="centered",
+    page_icon="🤖",
+    layout="wide",
+    initial_sidebar_state="expanded",
 )
 
-# Add custom CSS
+# Add custom CSS for styling
 st.markdown(
     """
 <style>
-    .reportview-container {
-        background-color: #f5f5f5;
+    /* Main layout styling */
+    .main .block-container {
+        padding-top: 1rem;
+        max-width: 1200px;
+        margin: 0 auto;
     }
-    .chat-message {
-        padding: 1.5rem; 
-        border-radius: 0.5rem; 
-        margin-bottom: 1rem; 
+    
+    /* Header styling */
+    .header-container {
         display: flex;
-        flex-direction: row;
-        align-items: flex-start;
+        align-items: center;
+        padding-bottom: 1rem;
+        margin-bottom: 1rem;
+        border-bottom: 1px solid #f0f0f0;
     }
-    .chat-message.user {
-        background-color: #DBF4FF;
+    .header-logo {
+        margin-right: 20px;
     }
-    .chat-message.assistant {
-        background-color: #F0F0F0;
+    .header-text h1 {
+        margin: 0;
+        color: #1E3A8A;
+        font-size: 1.8rem;
+        font-weight: 600;
     }
-    .chat-message .avatar {
-        width: 40px;
-        height: 40px;
-        margin-right: 1rem;
-        border-radius: 0.25rem;
+    .header-text p {
+        margin: 0;
+        color: #6B7280;
     }
-    .chat-message .content {
-        width: 80%;
-        padding: 0;
+    
+    /* Chat container styling */
+    .stChatFloatingInputContainer {
+        padding-bottom: 60px;  /* Add space for the footer */
     }
-    .css-1wrcr25 {
-        margin-bottom: 6rem;
+    .stChatMessageContent {
+        border-radius: 8px !important;
+    }
+    .stChatMessageContent a {
+        color: #1E40AF !important;
+    }
+    
+    /* Status indicator */
+    .status-indicator {
+        display: flex;
+        align-items: center;
+        margin-bottom: 1rem;
+        font-size: 0.9rem;
+        color: #4B5563;
+    }
+    .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        margin-right: 8px;
+        background-color: #10B981;
+    }
+    
+    /* Footer styling */
+    footer {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        text-align: center;
+        padding: 0.5rem;
+        background-color: rgba(255, 255, 255, 0.9);
+        font-size: 0.8rem;
+        color: #6B7280;
+        border-top: 1px solid #f0f0f0;
+        z-index: 100;
+    }
+    
+    /* Button styling */
+    .stButton button {
+        border-radius: 6px;
+        border: 1px solid #E5E7EB;
+        padding: 0.3rem 1rem;
+        font-size: 0.9rem;
+        transition: all 0.2s;
+    }
+    .stButton button:hover {
+        border-color: #1E40AF;
+        color: #1E40AF;
+        background-color: #EFF6FF;
+    }
+    
+    /* Sidebar styling */
+    .css-1544g2n {  /* Target sidebar */
+        background-color: #F8FAFC;
     }
 </style>
 """,
@@ -81,88 +148,137 @@ def initialize_vector_store():
     if os.path.exists(pdf_dir) and any(f.endswith(".pdf") for f in os.listdir(pdf_dir)):
         # Check if the vector store is empty or we're on Streamlit Cloud (always rebuild)
         if IS_STREAMLIT_CLOUD or not os.path.exists("data/faiss_index/pdf_docs.faiss"):
-            with st.spinner("Building vector database from PDF files..."):
+            with st.spinner("Building knowledge base from planning documents..."):
                 doc_processor = DocumentProcessor()
                 documents = doc_processor.process_directory(pdf_dir)
                 if documents:
                     vector_store.add_documents(documents)
-                    st.success(f"Vector database built with {len(documents)} chunks")
+                    return vector_store, True, len(documents)
 
-    return vector_store
+    return vector_store, False, 0
 
 
 def initialize_agent():
     """Initialize the agent with vector store and search tool."""
     # Initialize vector store
-    vector_store = initialize_vector_store()
+    vector_store, is_new_build, doc_count = initialize_vector_store()
+
+    # Store build info in session state
+    st.session_state.is_new_build = is_new_build
+    st.session_state.doc_count = doc_count
 
     # Check if Google Search API credentials are available
     if not os.getenv("GOOGLE_API_KEY") or not os.getenv("GOOGLE_CSE_ID"):
-        st.sidebar.warning(
-            "Google Search API credentials not found. The agent will continue without web search capability."
-        )
+        st.session_state.has_search = False
         search_tool = None
     else:
+        st.session_state.has_search = True
         search_tool = GoogleSearchTool()
 
     # Initialize agent
-    with st.spinner("Initializing Agent..."):
+    with st.spinner("Initializing AI Assistant..."):
         agent = Agent(vector_store=vector_store, search_tool=search_tool)
 
     return agent
 
 
-def display_message(role, content):
-    """Display a chat message with the appropriate styling."""
-    if role == "user":
-        st.markdown(
-            f"""
-        <div class="chat-message user">
-            <div class="avatar">👤</div>
-            <div class="content">{content}</div>
+def display_header():
+    """Display a professional header."""
+    header_html = f"""
+    <div class="header-container">
+        <div class="header-logo">
+            {get_logo_html(width=50)}
         </div>
-        """,
-            unsafe_allow_html=True,
-        )
-    else:
-        st.markdown(
-            f"""
-        <div class="chat-message assistant">
-            <div class="avatar">🤖</div>
-            <div class="content">{content}</div>
+        <div class="header-text">
+            <h1>{APP_TITLE}</h1>
+            <p>{APP_SUBTITLE}</p>
         </div>
-        """,
-            unsafe_allow_html=True,
+    </div>
+    """
+    st.markdown(header_html, unsafe_allow_html=True)
+
+
+def display_status():
+    """Display system status indicator."""
+    status_html = """
+    <div class="status-indicator">
+        <div class="status-dot"></div>
+        <span>AI Assistant ready</span>
+    </div>
+    """
+    st.markdown(status_html, unsafe_allow_html=True)
+
+    if hasattr(st.session_state, "is_new_build") and st.session_state.is_new_build:
+        st.markdown(
+            f"_Knowledge base built with {st.session_state.doc_count} document chunks_"
         )
+
+
+def display_footer():
+    """Display a professional footer."""
+    footer_html = f"""
+    <footer>
+        © {CURRENT_YEAR} Planning Intelligence | Powered by AI | All rights reserved
+    </footer>
+    """
+    st.markdown(footer_html, unsafe_allow_html=True)
 
 
 def setup_sidebar():
     """Set up the sidebar with example questions and reset button."""
-    st.sidebar.header("Example Questions")
+    st.sidebar.markdown("### Sample Queries")
+    st.sidebar.write("Click on any example to try it:")
 
     # Display example questions as buttons
-    for q in EXAMPLE_QUESTIONS:
-        if st.sidebar.button(q):
-            st.session_state.messages.append({"role": "user", "content": q})
+    for i, q in enumerate(EXAMPLE_QUESTIONS):
+        # First show the example text
+        st.sidebar.markdown(f"**Example {i+1}:**")
+        st.sidebar.markdown(f"_{q}_")
+
+        # Then add a button to try it
+        if st.sidebar.button(
+            f"Try this query", key=f"example-{i}", use_container_width=True
+        ):
             # Get response from agent
-            with st.spinner("Thinking..."):
-                response = st.session_state.agent.query(q)
-            st.session_state.messages.append({"role": "assistant", "content": response})
-            # Force a rerun to display the new messages
+            with st.chat_message("user"):
+                st.markdown(q)
+
+            # Add user message to chat history
+            st.session_state.messages.append({"role": "user", "content": q})
+
+            # Force a rerun to process the message
             st.rerun()
 
-    # Add clear conversation button
-    if st.sidebar.button("Clear Conversation"):
+    st.sidebar.markdown("---")
+
+    # Add clear conversation button with better styling
+    if st.sidebar.button(
+        "New Conversation",
+        key="clear_btn",
+        help="Start a new conversation",
+        use_container_width=True,
+    ):
         st.session_state.messages = []
         st.session_state.agent.reset_conversation()
+        st.session_state.conversation_id = datetime.datetime.now().strftime(
+            "%Y%m%d%H%M%S"
+        )
         st.rerun()
 
 
 def main():
     """Main function to run the Streamlit app."""
-    # Set up the title and description
-    st.title(APP_TITLE)
-    st.markdown(APP_DESCRIPTION)
+    # Display header
+    display_header()
+
+    # Display system status
+    display_status()
+
+    # Initialize conversation ID if not exists
+    if "conversation_id" not in st.session_state:
+        st.session_state.conversation_id = datetime.datetime.now().strftime(
+            "%Y%m%d%H%M%S"
+        )
 
     # Initialize session state for chat history if it doesn't exist
     if "messages" not in st.session_state:
@@ -175,34 +291,60 @@ def main():
     # Setup sidebar with examples and reset button
     setup_sidebar()
 
-    # Display chat history
-    for message in st.session_state.messages:
-        display_message(message["role"], message["content"])
+    # Display welcome message if no messages
+    if len(st.session_state.messages) == 0:
+        st.chat_message("assistant").write(
+            "👋 Hello! I'm your Planning Intelligence Assistant. Ask me anything about planning applications in London."
+        )
 
-    # Chat input
-    with st.form(key="chat_form", clear_on_submit=True):
-        user_input = st.text_area("Your question:", key="user_input", height=100)
-        submit_button = st.form_submit_button("Send")
+    # Display chat messages from history
+    for i, message in enumerate(st.session_state.messages):
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
 
-        if submit_button and user_input:
-            # Add user message to chat history
-            st.session_state.messages.append({"role": "user", "content": user_input})
+    # Get user input
+    if prompt := st.chat_input("Ask about planning applications..."):
+        # Display user message
+        with st.chat_message("user"):
+            st.markdown(prompt)
 
-            # Get response from agent
-            with st.spinner("Thinking..."):
-                response = st.session_state.agent.query(user_input)
+        # Add to message history
+        st.session_state.messages.append({"role": "user", "content": prompt})
 
-            # Add assistant response to chat history
-            st.session_state.messages.append({"role": "assistant", "content": response})
+        # Display assistant response
+        with st.chat_message("assistant"):
+            # Display typing indicator
+            message_placeholder = st.empty()
+            full_response = ""
 
-            # Force a rerun to display the new messages
-            st.rerun()
+            # Simulate typing with a delay
+            typing_indicator = "⏳ Thinking..."
+            message_placeholder.markdown(typing_indicator)
 
-    # Add some information about the app
-    st.markdown("---")
-    st.markdown(
-        "This AI assistant uses Azure OpenAI to answer queries about planning applications in London."
-    )
+            try:
+                # Get response from agent
+                response = st.session_state.agent.query(prompt)
+
+                # Simulate typing effect (this could be replaced with actual streaming)
+                message_placeholder.empty()
+
+                # Display the final response
+                message_placeholder.markdown(response)
+
+                # Add to message history
+                st.session_state.messages.append(
+                    {"role": "assistant", "content": response}
+                )
+
+            except Exception as e:
+                error_msg = f"I apologize, but I encountered an error: {str(e)}"
+                message_placeholder.markdown(error_msg)
+                st.session_state.messages.append(
+                    {"role": "assistant", "content": error_msg}
+                )
+
+    # Display footer
+    display_footer()
 
 
 if __name__ == "__main__":

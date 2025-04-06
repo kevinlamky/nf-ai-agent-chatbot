@@ -11,16 +11,12 @@ from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 from src.utils.logger import get_logger
 
-# Get logger for this module
-logger = get_logger(__name__)
-
 load_dotenv()
 
-# Fix SSL certificate verification issues
-os.environ.pop("SSL_CERT_FILE", None)  # Remove problematic SSL_CERT_FILE if it exists
+logger = get_logger(__name__)
 
-# Check if running on Streamlit Cloud
-IS_STREAMLIT_CLOUD = "STREAMLIT_RUNTIME_PRODUCTION" in os.environ
+# Fix SSL certificate verification issues
+os.environ.pop("SSL_CERT_FILE", None)
 
 
 class VectorStore:
@@ -43,8 +39,15 @@ class VectorStore:
         self.index_file = os.path.join(persist_directory, f"{index_name}.faiss")
         self.docstore_file = os.path.join(persist_directory, f"{index_name}.pkl")
 
+        # Initialize embedding model
+        self._initialize_embeddings()
+
+        # Set up vector store (load existing or create new)
+        self._setup_vector_store()
+
+    def _initialize_embeddings(self) -> None:
+        """Initialize the Azure OpenAI embeddings model."""
         try:
-            # Create embeddings model
             self.embeddings = AzureOpenAIEmbeddings(
                 azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
                 api_key=os.getenv("AZURE_OPENAI_API_KEY"),
@@ -52,48 +55,45 @@ class VectorStore:
                 deployment=os.getenv("AZURE_OPENAI_EMBEDDING_MODEL"),
             )
         except Exception as e:
-            logger.error(f"Error creating embeddings model: {e}")
+            logger.error(f"Error initializing embeddings model: {e}")
             raise
 
-        # Create or load the vector store
+    def _setup_vector_store(self) -> None:
+        """Set up the vector store by loading an existing index or creating a new one."""
+        # Ensure directory exists
+        os.makedirs(self.persist_directory, exist_ok=True)
+
         if os.path.exists(self.index_file) and os.path.exists(self.docstore_file):
             try:
                 self.vectordb = self._load_faiss_index()
                 logger.info(f"Loaded existing FAISS index from {self.index_file}")
             except Exception as e:
                 logger.error(f"Error loading existing FAISS index: {e}")
-                self._create_empty_index()
+                self._initialise_index()
         else:
-            # Create an empty index
             logger.info("Creating new FAISS index")
-            self._create_empty_index()
-            # Ensure directory exists
-            os.makedirs(persist_directory, exist_ok=True)
+            self._initialise_index()
 
-    def _create_empty_index(self):
-        """Create an empty FAISS index with a temporary dummy document."""
-        # Create a dummy document for initialization
-        dummy_doc = Document(
-            page_content="Temporary initialization document",
-            metadata={"source": "initialization", "temporary": True},
+    def _initialise_index(self) -> None:
+        """Initialise an empty FAISS index with the correct embedding dimensions."""
+        # Get embedding dimension from the embeddings model
+        embedding_dim = len(self.embeddings.embed_query("test query"))
+
+        # Create an empty index with the correct dimensions
+        empty_index = faiss.IndexFlatL2(embedding_dim)
+
+        # Create the FAISS vector store using the empty index
+        self.vectordb = FAISS(
+            embedding_function=self.embeddings,
+            index=empty_index,
+            docstore={},
+            index_to_docstore_id={},
         )
 
-        # Create the index with the dummy document
-        self.vectordb = FAISS.from_documents([dummy_doc], self.embeddings)
-
-        # Remove the dummy document from the index (this clears the internal docstore)
-        try:
-            self.vectordb.docstore._dict.clear()
-            # Reset the index mapping
-            self.vectordb.index_to_docstore_id = {}
-            logger.info("Created empty FAISS index")
-        except Exception as e:
-            logger.warning(
-                f"Warning: Couldn't fully clear dummy document from index: {e}"
-            )
+        logger.info(f"Initialised empty FAISS index with dimension {embedding_dim}")
 
     def _load_faiss_index(self) -> FAISS:
-        """Load a FAISS index from disk."""
+        """Load an existing FAISS index from disk."""
         return FAISS.load_local(
             self.persist_directory,
             self.embeddings,
@@ -122,7 +122,6 @@ class VectorStore:
             initial_backoff: Initial wait time in seconds when hitting rate limits
             max_retries: Maximum number of retries per batch
         """
-        # Check if documents list is empty
         if not documents:
             logger.warning("No documents to add to the vector store")
             return
@@ -141,9 +140,20 @@ class VectorStore:
             for i in range(0, len(langchain_docs), batch_size)
         ]
 
-        logger.info(
-            f"Processing documents in {len(batches)} batches of size {batch_size}"
-        )
+        self._process_document_batches(batches, initial_backoff, max_retries)
+
+    def _process_document_batches(
+        self, batches: List[List[Document]], initial_backoff: int, max_retries: int
+    ) -> None:
+        """
+        Process document batches with retry logic for rate limits.
+
+        Args:
+            batches: List of document batches to process
+            initial_backoff: Initial backoff time in seconds
+            max_retries: Maximum number of retry attempts
+        """
+        logger.info(f"Processing {len(batches)} batches of documents")
 
         for i, batch in enumerate(tqdm(batches, desc="Processing document batches")):
             retry_count = 0
@@ -151,7 +161,7 @@ class VectorStore:
 
             while retry_count <= max_retries:
                 try:
-                    # For the first batch, recreate the index if the index is empty (only contains dummy doc)
+                    # For the first batch, recreate the index if it's empty
                     if (
                         i == 0
                         and retry_count == 0
@@ -192,14 +202,14 @@ class VectorStore:
                         backoff_time *= 2
                     else:
                         # For other errors, just raise
-                        raise e
+                        raise
 
         # Save the index after processing all batches
         try:
             self._save_faiss_index()
             logger.info(f"Saved FAISS index to {self.persist_directory}")
         except Exception as e:
-            logger.warning(f"Warning: Could not save FAISS index: {e}")
+            logger.warning(f"Could not save FAISS index: {e}")
 
     def similarity_search(
         self, query: str, k: int = 5, filter: Optional[Dict[str, Any]] = None
@@ -215,7 +225,6 @@ class VectorStore:
         Returns:
             List of relevant documents
         """
-        # Check if the index is empty
         if not self.vectordb.index_to_docstore_id:
             logger.warning("Vector store is empty. No results to return.")
             return []
@@ -230,7 +239,7 @@ class VectorStore:
             return []
 
     def similarity_search_with_score(
-        self, query: str, k: int = 3, filter: Optional[Dict[str, Any]] = None
+        self, query: str, k: int = 5, filter: Optional[Dict[str, Any]] = None
     ) -> List[tuple[Document, float]]:
         """
         Search for similar documents in the vector store with relevance scores.
@@ -243,7 +252,6 @@ class VectorStore:
         Returns:
             List of tuples containing document and score
         """
-        # Check if the index is empty
         if not self.vectordb.index_to_docstore_id:
             logger.warning("Vector store is empty. No results to return.")
             return []
@@ -269,36 +277,5 @@ class VectorStore:
         Returns:
             Retriever interface for use with LangChain
         """
-        search_kwargs = search_kwargs or {"k": 3}
+        search_kwargs = search_kwargs or {"k": 5}
         return self.vectordb.as_retriever(search_kwargs=search_kwargs)
-
-    def delete(self):
-        """
-        Delete all documents from the vector store.
-
-        This method removes all documents from the vector database and persists the changes.
-        """
-        try:
-            # Create new empty index
-            self._create_empty_index()
-
-            # Save the empty index
-            self._save_faiss_index()
-            return True
-        except Exception as e:
-            logger.error(f"Error resetting vector store: {e}")
-            return False
-
-
-if __name__ == "__main__":
-    logger.info("Vector store module loaded successfully")
-    # Initialize the vector store
-    vector_store = VectorStore()
-    logger.info(
-        f"Vector store contains {len(vector_store.vectordb.index_to_docstore_id)} documents"
-    )
-
-    documents = vector_store.similarity_search(
-        "What is the planning statement for Undershaft?"
-    )
-    logger.info(documents)

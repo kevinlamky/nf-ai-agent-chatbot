@@ -5,7 +5,6 @@ from typing import List, Dict, Optional, Any
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from src.utils.logger import get_logger
 
-# Get logger
 logger = get_logger(__name__)
 
 
@@ -37,14 +36,16 @@ class DocumentProcessor:
 
         Returns:
             List of document chunks with metadata
+
+        Raises:
+            FileNotFoundError: If the PDF file does not exist
         """
         if not os.path.exists(file_path):
             logger.error(f"PDF file not found: {file_path}")
             raise FileNotFoundError(f"PDF file not found: {file_path}")
 
         try:
-            logger.info(f"Opening PDF file: {file_path}")
-            # Extract text from PDF
+            logger.info(f"Start processing PDF file: {file_path}")
             doc = pymupdf.open(file_path)
             text = ""
 
@@ -55,17 +56,11 @@ class DocumentProcessor:
                 except Exception as e:
                     logger.error(f"Error extracting text from page {page_num}: {e}")
 
-            logger.info(f"Extracted {len(text)} characters from {file_path}")
-
             if not text.strip():
                 logger.warning(f"Warning: No text extracted from {file_path}")
                 return []
 
-            # Split text into chunks
             chunks = self.text_splitter.create_documents([text])
-            logger.info(f"Created {len(chunks)} chunks from {file_path}")
-
-            # Add metadata to chunks
             file_name = os.path.basename(file_path)
             documents = []
 
@@ -76,16 +71,17 @@ class DocumentProcessor:
                         "metadata": {
                             "source": file_name,
                             "chunk": i,
-                            "file_path": file_path,
                         },
                     }
                 )
 
+            logger.info(f"Processed {len(chunks)} chunks from {file_path}")
             return documents
         except Exception as e:
             logger.error(f"Error processing PDF {file_path}: {e}")
             return []
 
+    # DEPRECATED: Use csv_agent instead
     def process_csv(self, file_path: str) -> List[Dict[str, Any]]:
         """
         Process a CSV file into documents.
@@ -95,16 +91,19 @@ class DocumentProcessor:
 
         Returns:
             List of documents with metadata
+
+        Raises:
+            FileNotFoundError: If the CSV file does not exist
         """
         if not os.path.exists(file_path):
             logger.error(f"CSV file not found: {file_path}")
             raise FileNotFoundError(f"CSV file not found: {file_path}")
 
         try:
+            logger.info(f"Start processing CSV file: {file_path}")
             df = pd.read_csv(file_path)
             documents = []
 
-            # Convert each row to a document
             for index, row in df.iterrows():
                 content = " ".join([f"{col}: {row[col]}" for col in df.columns])
                 documents.append(
@@ -113,7 +112,6 @@ class DocumentProcessor:
                         "metadata": {
                             "source": os.path.basename(file_path),
                             "index": index,
-                            "file_path": file_path,
                         },
                     }
                 )
@@ -133,6 +131,9 @@ class DocumentProcessor:
 
         Returns:
             List of all documents with metadata
+
+        Raises:
+            FileNotFoundError: If the directory does not exist
         """
         if not os.path.exists(dir_path):
             logger.error(f"Directory not found: {dir_path}")
@@ -141,6 +142,7 @@ class DocumentProcessor:
         documents = []
         file_count = 0
         pdf_count = 0
+        csv_count = 0
 
         for file_name in os.listdir(dir_path):
             file_path = os.path.join(dir_path, file_name)
@@ -149,47 +151,22 @@ class DocumentProcessor:
             try:
                 if file_name.lower().endswith(".pdf"):
                     pdf_count += 1
-                    logger.info(f"Processing PDF {pdf_count}/{file_count}: {file_name}")
                     pdf_documents = self.process_pdf(file_path)
                     documents.extend(pdf_documents)
                     logger.info(
                         f"Extracted {len(pdf_documents)} chunks from {file_name}"
                     )
                 elif file_name.lower().endswith(".csv"):
-                    logger.info(f"Processing CSV: {file_name}")
+                    csv_count += 1
                     csv_documents = self.process_csv(file_path)
                     documents.extend(csv_documents)
                     logger.info(f"Extracted {len(csv_documents)} rows from {file_name}")
             except Exception as e:
                 logger.error(f"Error processing file {file_name}: {e}")
 
-        logger.info(f"Processed {file_count} files ({pdf_count} PDFs) from {dir_path}")
-        logger.info(f"Total documents extracted: {len(documents)}")
+        logger.info(f"Processed all documents from {dir_path}")
+        logger.info(
+            f"Total documents extracted: {file_count} ({pdf_count} PDF, {csv_count} CSV)"
+        )
 
         return documents
-
-
-if __name__ == "__main__":
-    processor = DocumentProcessor()
-
-    # Test processing a single PDF document
-    pdf_path = "data/raw/pdf/1_Undershaft_Planning_Statement.pdf"
-    pdf_documents = processor.process_pdf(pdf_path)
-    logger.info(f"Processed {len(pdf_documents)} chunks from {pdf_path}")
-    logger.debug(f"First document: {pdf_documents[0] if pdf_documents else 'None'}")
-
-    # Test processing a single CSV document
-    csv_path = "data/raw/csv/Planning Application Details.csv"
-    csv_documents = processor.process_csv(csv_path)
-    logger.info(f"Processed {len(csv_documents)} rows from {csv_path}")
-    logger.debug(f"First row: {csv_documents[0] if csv_documents else 'None'}")
-
-    # Test processing a directory
-    test_dir = "data/raw/pdf"
-    dir_documents = processor.process_directory(test_dir)
-    logger.info(
-        f"Processed {len(set(doc['metadata']['source'] for doc in dir_documents))} total documents from directory {test_dir}"
-    )
-    logger.info(
-        f"Document types: {set(doc['metadata']['source'].split('.')[-1] for doc in dir_documents)}"
-    )

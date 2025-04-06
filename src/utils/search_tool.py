@@ -3,6 +3,7 @@ from typing import Dict, List, Any, Optional
 from dotenv import load_dotenv
 from googleapiclient.discovery import build
 from langchain_core.tools import Tool
+from src.prompts.agent_prompts import TOOL_DESCRIPTIONS
 
 load_dotenv()
 
@@ -65,6 +66,6 @@ class GoogleSearchTool:
         """
         return Tool(
             name="google_search",
-            description="Search Google for information about a query. Useful for finding up-to-date information that might not be in the document database.",
+            description=TOOL_DESCRIPTIONS["google_search"],
             func=self.search,
         )

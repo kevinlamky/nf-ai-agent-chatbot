@@ -23,27 +23,17 @@ from src.prompts.agent_prompts import (
     CONVERSATION_SYSTEM_MESSAGE,
     FALLBACK_PROMPT,
 )
-from src.prompts.document_prompts import (
-    DOCUMENT_SEARCH_RESULTS_PREFIX,
-    DOCUMENT_SEARCH_NO_RESULTS,
-    DOCUMENT_SEARCH_NOT_AVAILABLE,
-    DOCUMENT_SEARCH_ERROR,
-    DOCUMENT_RESULT_FORMAT,
-    CSV_SEARCH_NOT_AVAILABLE,
-    CSV_SEARCH_ERROR,
-)
 
 load_dotenv()
 
-# Get logger
 logger = get_logger(__name__)
 
 # Fix SSL certificate verification issues
-os.environ.pop("SSL_CERT_FILE", None)  # Remove problematic SSL_CERT_FILE if it exists
+os.environ.pop("SSL_CERT_FILE", None)
 
 
 class Agent:
-    """An AI agent that can answer queries about planning applications using PDF documents, CSV data, and web search."""
+    """An AI agent that can answer queries about planning applications using given PDF and CSV documents, and web search."""
 
     def __init__(
         self,
@@ -52,12 +42,12 @@ class Agent:
         csv_path: str = "data/raw/csv/Planning Application Details.csv",
     ):
         """
-        Initialize the unified planning agent.
+        Initialize the unified chatbot agent.
 
         Args:
-            vector_store: Vector store for PDF document search
+            vector_store: Vector store for given PDF documents
             search_tool: Google search tool for web search
-            csv_path: Path to the CSV file with planning data
+            csv_path: Path to the given CSV file with planning application data
         """
         logger.info("Initializing Planning Agent")
 
@@ -78,7 +68,7 @@ class Agent:
             self.search_tool = GoogleSearchTool()
 
         # Initialize CSV file paths
-        logger.info(f"Setting CSV path to: {csv_path}")
+        logger.info(f"Setting CSV data path to: {csv_path}")
         self.csv_path = csv_path
 
         # Initialize chat model
@@ -95,13 +85,10 @@ class Agent:
             logger.warning(f"Warning: Error initializing Azure OpenAI: {str(e)}")
             raise
 
-        # Initialize CSV agent if CSV files are available
+        # Initialize CSV agent
         self.csv_agent = None
         if os.path.exists(self.csv_path):
             try:
-                logger.info(
-                    f"CSV file found at {self.csv_path}, initializing CSV agent"
-                )
                 self.csv_agent = get_csv_agent(self.csv_path, verbose=True)
                 logger.info(f"CSV agent initialized with file: {self.csv_path}")
             except Exception as e:
@@ -115,12 +102,10 @@ class Agent:
         logger.info(f"Initialized {len(self.tools)} tools for agent")
 
         # Set up agent with tools
-        logger.info("Setting up agent executor")
         self.agent_executor = self._setup_agent()
         logger.info("Agent executor initialized")
 
         # Setup basic conversation chain for follow-up questions
-        logger.info("Setting up conversation chain for follow-up questions")
         self.conversation_history = []
         self.conversation_chain = self._setup_conversation_chain()
         logger.info("Conversation chain initialized")
@@ -137,7 +122,7 @@ class Agent:
         logger.info("Setting up agent tools")
         tools = []
 
-        # Document search tool - only if vector store is available
+        # Document search tool
         if self.vector_store:
             logger.info("Adding document search tool")
             doc_search_tool = Tool(
@@ -157,7 +142,7 @@ class Agent:
             )
             tools.append(csv_tool)
 
-        # Google search tool - only if available
+        # Google search tool
         if self.search_tool:
             logger.info("Adding Google search tool")
             google_search_tool = self.search_tool.get_langchain_tool()
@@ -180,21 +165,20 @@ class Agent:
 
         if not self.vector_store:
             logger.warning("Document search requested but vector store not available")
-            return DOCUMENT_SEARCH_NOT_AVAILABLE
+            return "PDF document search is not available."
 
         try:
-            results = self.vector_store.similarity_search(query, k=3)
+            results = self.vector_store.similarity_search(
+                query, k=3
+            )  # reduce k=3 for token rate limit
 
             if not results:
                 logger.info("Document search returned no results")
-                return DOCUMENT_SEARCH_NO_RESULTS
+                return "No relevant information found in the given PDF documents."
 
             documents_text = "\n\n".join(
                 [
-                    DOCUMENT_RESULT_FORMAT.format(
-                        source=doc.metadata.get("source", "Unknown"),
-                        content=doc.page_content,
-                    )
+                    f"[Document: {doc.metadata.get('source', 'Unknown')}]\n{doc.page_content}"
                     for doc in results
                 ]
             )
@@ -204,10 +188,10 @@ class Agent:
                 f"Document search returned {len(results)} results from sources: {', '.join(sources)}"
             )
 
-            return f"{DOCUMENT_SEARCH_RESULTS_PREFIX}{documents_text}"
+            return f"Here is relevant information from the planning documents:\n\n {documents_text}"
         except Exception as e:
             logger.error(f"Error during document search: {e}")
-            return DOCUMENT_SEARCH_ERROR.format(error=str(e))
+            return f"Error searching documents: {e}"
 
     def _query_csv_data(self, query: str) -> str:
         """
@@ -223,14 +207,11 @@ class Agent:
 
         if not self.csv_agent:
             logger.warning("CSV query requested but CSV agent not available")
-            return CSV_SEARCH_NOT_AVAILABLE
+            return "CSV data search is not available."
 
         try:
-            # Execute the query using the CSV agent
-            logger.info("Invoking CSV agent")
             result = self.csv_agent.invoke({"input": query})
 
-            # Extract and return the output
             if isinstance(result, dict) and "output" in result:
                 logger.info(
                     f"CSV agent returned structured output of {len(result['output'])} characters"
@@ -243,7 +224,7 @@ class Agent:
             return str(result)
         except Exception as e:
             logger.error(f"Error during CSV query: {e}")
-            return CSV_SEARCH_ERROR.format(error=str(e))
+            return f"Error querying CSV data: {e}"
 
     def _setup_agent(self) -> AgentExecutor:
         """
@@ -252,36 +233,28 @@ class Agent:
         Returns:
             Agent executor
         """
-        logger.info("Setting up agent executor")
-
         # Start with the base system message
         system_message = BASE_SYSTEM_MESSAGE
-        logger.debug("Using base system message")
 
         # Add available tools to the system message
         available_tools = []
         if self.vector_store:
-            logger.info("Adding PDF document search capability to system message")
             system_message += "You can search through PDF planning application documents for detailed information.\n"
             available_tools.append("PDF document search")
 
         if self.csv_agent:
-            logger.info("Adding CSV data search capability to system message")
             system_message += "You have access to a database of planning application records in CSV format.\n"
-            available_tools.append("CSV data search")
+            available_tools.append("CSV data query")
 
         if self.search_tool:
-            logger.info("Adding web search capability to system message")
             system_message += "You can search online for additional information about planning applications and related topics.\n"
             available_tools.append("web search")
 
         # Add tool list and process instructions
-        logger.info(f"Available tools: {', '.join(available_tools)}")
         system_message += f"\nTo answer questions, you have these tools available: {', '.join(available_tools)}.\n"
         system_message += AGENT_PROCESS_INSTRUCTIONS
 
         # Create the prompt
-        logger.info("Creating agent prompt")
         prompt = ChatPromptTemplate.from_messages(
             [
                 (
@@ -294,12 +267,8 @@ class Agent:
             ]
         )
 
-        # Create the agent - using OpenAIFunctionsAgent
-        logger.info("Creating OpenAI functions agent")
         agent = OpenAIFunctionsAgent(llm=self.llm, tools=self.tools, prompt=prompt)
 
-        # Create the agent executor
-        logger.info("Creating agent executor")
         return AgentExecutor.from_agent_and_tools(
             agent=agent,
             tools=self.tools,
@@ -493,19 +462,3 @@ class Agent:
         )
         logger.info(f"Conversation exchanges: {len(self.conversation_history) // 2}")
         logger.info("=======================")
-
-
-if __name__ == "__main__":
-    agent = Agent()
-    # logger.info(agent.query("Who is the winner of 2024 Olympic men single tennis?"))
-    # logger.info(agent.query("What amenities are included at 99 City Road from PDF?"))
-    logger.info(
-        agent.query(
-            "What is the total proposed Gross Internal Area (GIA) for 99 Bishopsgate?"
-        )
-    )
-    # logger.info(
-    #     agent.query(
-    #         "How does the proposed GIA of 99 Bishopsgate compare to that of 70 Gracechurch Street?"
-    #     )
-    # )
