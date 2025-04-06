@@ -45,18 +45,9 @@ class VectorStore:
         except Exception as e:
             print(f"Error creating embeddings model: {e}")
 
-        # On Streamlit Cloud, use in-memory storage instead of SQLite
-        if IS_STREAMLIT_CLOUD:
-            print(
-                "Running on Streamlit Cloud - using in-memory storage instead of SQLite"
-            )
-            self.vectordb = Chroma(
-                collection_name=collection_name,
-                embedding_function=self.embeddings,
-                client_settings=None,  # Use default in-memory client
-            )
-        else:
-            # Create or load the vector store using file persistence
+        # Create or load the vector store
+        try:
+            # First try to create or load the standard way (for local development)
             if os.path.exists(persist_directory):
                 self.vectordb = Chroma(
                     persist_directory=persist_directory,
@@ -71,6 +62,15 @@ class VectorStore:
                     embedding_function=self.embeddings,
                     collection_name=collection_name,
                 )
+        except Exception as e:
+            # If that fails (likely on Streamlit Cloud with older SQLite),
+            # create an in-memory database
+            print(f"Error creating persistent ChromaDB: {e}")
+            print("Falling back to in-memory ChromaDB")
+            self.vectordb = Chroma(
+                embedding_function=self.embeddings,
+                collection_name=collection_name,
+            )
 
     def add_documents(
         self,
@@ -135,9 +135,12 @@ class VectorStore:
                         # For other errors, just raise
                         raise e
 
-        # Persist changes after all batches are processed
-        if not IS_STREAMLIT_CLOUD:
+        # Try to persist changes if we're using a persistent database
+        try:
             self.vectordb.persist()
+        except Exception as e:
+            print(f"Warning: Could not persist vector database: {e}")
+            print("This is normal when using in-memory mode on Streamlit Cloud")
 
     def similarity_search(
         self, query: str, k: int = 5, filter: Optional[Dict[str, Any]] = None
@@ -190,17 +193,12 @@ class VectorStore:
 
         This method removes all documents from the vector database and persists the changes.
         """
-        # Check if vectordb exists and has the delete_collection method
-        if hasattr(self, "vectordb") and hasattr(self.vectordb, "delete_collection"):
-            # Delete the collection
+        try:
+            # Try to delete the collection and reinitialize
             self.vectordb.delete_collection()
-            # Reinitialize the collection
-            if IS_STREAMLIT_CLOUD:
-                self.vectordb = Chroma(
-                    collection_name=self.collection_name,
-                    embedding_function=self.embeddings,
-                )
-            else:
+
+            try:
+                # Try to reinitialize with persistent storage
                 self.vectordb = Chroma(
                     collection_name=self.collection_name,
                     embedding_function=self.embeddings,
@@ -208,8 +206,17 @@ class VectorStore:
                 )
                 # Persist the changes
                 self.vectordb.persist()
+            except Exception as e:
+                # Fallback to in-memory
+                print(f"Falling back to in-memory storage after delete: {e}")
+                self.vectordb = Chroma(
+                    collection_name=self.collection_name,
+                    embedding_function=self.embeddings,
+                )
             return True
-        return False
+        except Exception as e:
+            print(f"Error deleting collection: {e}")
+            return False
 
 
 if __name__ == "__main__":
