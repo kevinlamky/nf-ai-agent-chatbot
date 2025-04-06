@@ -9,6 +9,10 @@ from dotenv import load_dotenv
 from langchain_openai import AzureOpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
+from src.utils.logger import get_logger
+
+# Get logger for this module
+logger = get_logger(__name__)
 
 load_dotenv()
 
@@ -48,20 +52,20 @@ class VectorStore:
                 deployment=os.getenv("AZURE_OPENAI_EMBEDDING_MODEL"),
             )
         except Exception as e:
-            print(f"Error creating embeddings model: {e}")
+            logger.error(f"Error creating embeddings model: {e}")
             raise
 
         # Create or load the vector store
         if os.path.exists(self.index_file) and os.path.exists(self.docstore_file):
             try:
                 self.vectordb = self._load_faiss_index()
-                print(f"Loaded existing FAISS index from {self.index_file}")
+                logger.info(f"Loaded existing FAISS index from {self.index_file}")
             except Exception as e:
-                print(f"Error loading existing FAISS index: {e}")
+                logger.error(f"Error loading existing FAISS index: {e}")
                 self._create_empty_index()
         else:
             # Create an empty index
-            print("Creating new FAISS index")
+            logger.info("Creating new FAISS index")
             self._create_empty_index()
             # Ensure directory exists
             os.makedirs(persist_directory, exist_ok=True)
@@ -82,9 +86,11 @@ class VectorStore:
             self.vectordb.docstore._dict.clear()
             # Reset the index mapping
             self.vectordb.index_to_docstore_id = {}
-            print("Created empty FAISS index")
+            logger.info("Created empty FAISS index")
         except Exception as e:
-            print(f"Warning: Couldn't fully clear dummy document from index: {e}")
+            logger.warning(
+                f"Warning: Couldn't fully clear dummy document from index: {e}"
+            )
 
     def _load_faiss_index(self) -> FAISS:
         """Load a FAISS index from disk."""
@@ -118,10 +124,10 @@ class VectorStore:
         """
         # Check if documents list is empty
         if not documents:
-            print("No documents to add to the vector store")
+            logger.warning("No documents to add to the vector store")
             return
 
-        print(f"Adding {len(documents)} documents to vector store")
+        logger.info(f"Adding {len(documents)} documents to vector store")
 
         # Convert to LangChain document format
         langchain_docs = [
@@ -135,7 +141,9 @@ class VectorStore:
             for i in range(0, len(langchain_docs), batch_size)
         ]
 
-        print(f"Processing documents in {len(batches)} batches of size {batch_size}")
+        logger.info(
+            f"Processing documents in {len(batches)} batches of size {batch_size}"
+        )
 
         for i, batch in enumerate(tqdm(batches, desc="Processing document batches")):
             retry_count = 0
@@ -149,12 +157,12 @@ class VectorStore:
                         and retry_count == 0
                         and len(self.vectordb.index_to_docstore_id) == 0
                     ):
-                        print(
+                        logger.info(
                             f"Creating new FAISS index with first batch of {len(batch)} documents"
                         )
                         self.vectordb = FAISS.from_documents(batch, self.embeddings)
                     else:
-                        print(
+                        logger.debug(
                             f"Adding batch {i+1}/{len(batches)} ({len(batch)} documents)"
                         )
                         self.vectordb.add_documents(batch)
@@ -163,7 +171,7 @@ class VectorStore:
                     break
                 except Exception as e:
                     error_message = str(e).lower()
-                    print(f"Error in batch {i+1}: {e}")
+                    logger.error(f"Error in batch {i+1}: {e}")
 
                     # Check if it's a rate limit error
                     if (
@@ -175,7 +183,7 @@ class VectorStore:
                         if retry_count > max_retries:
                             raise Exception(f"Failed after {max_retries} retries: {e}")
 
-                        print(
+                        logger.warning(
                             f"Rate limit hit. Retry {retry_count}/{max_retries}. Waiting {backoff_time}s..."
                         )
                         time.sleep(backoff_time)
@@ -189,9 +197,9 @@ class VectorStore:
         # Save the index after processing all batches
         try:
             self._save_faiss_index()
-            print(f"Saved FAISS index to {self.persist_directory}")
+            logger.info(f"Saved FAISS index to {self.persist_directory}")
         except Exception as e:
-            print(f"Warning: Could not save FAISS index: {e}")
+            logger.warning(f"Warning: Could not save FAISS index: {e}")
 
     def similarity_search(
         self, query: str, k: int = 5, filter: Optional[Dict[str, Any]] = None
@@ -209,7 +217,7 @@ class VectorStore:
         """
         # Check if the index is empty
         if not self.vectordb.index_to_docstore_id:
-            print("Warning: Vector store is empty. No results to return.")
+            logger.warning("Vector store is empty. No results to return.")
             return []
 
         try:
@@ -218,7 +226,7 @@ class VectorStore:
             else:
                 return self.vectordb.similarity_search(query, k=k)
         except Exception as e:
-            print(f"Error during similarity search: {e}")
+            logger.error(f"Error during similarity search: {e}")
             return []
 
     def similarity_search_with_score(
@@ -237,7 +245,7 @@ class VectorStore:
         """
         # Check if the index is empty
         if not self.vectordb.index_to_docstore_id:
-            print("Warning: Vector store is empty. No results to return.")
+            logger.warning("Vector store is empty. No results to return.")
             return []
 
         try:
@@ -248,7 +256,7 @@ class VectorStore:
             else:
                 return self.vectordb.similarity_search_with_score(query, k=k)
         except Exception as e:
-            print(f"Error during similarity search with score: {e}")
+            logger.error(f"Error during similarity search with score: {e}")
             return []
 
     def get_retriever(self, search_kwargs: Optional[Dict[str, Any]] = None):
@@ -278,19 +286,19 @@ class VectorStore:
             self._save_faiss_index()
             return True
         except Exception as e:
-            print(f"Error resetting vector store: {e}")
+            logger.error(f"Error resetting vector store: {e}")
             return False
 
 
 if __name__ == "__main__":
-    print("Vector store module loaded successfully")
+    logger.info("Vector store module loaded successfully")
     # Initialize the vector store
     vector_store = VectorStore()
-    print(
+    logger.info(
         f"Vector store contains {len(vector_store.vectordb.index_to_docstore_id)} documents"
     )
 
     documents = vector_store.similarity_search(
         "What is the planning statement for Undershaft?"
     )
-    print(documents)
+    logger.info(documents)
